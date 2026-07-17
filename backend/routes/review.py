@@ -26,6 +26,65 @@ review_bp = Blueprint("review", __name__)
 @review_bp.route("/api/review", methods=["POST"])
 @optional_auth
 def review_code():
+    """
+    Analiza codigo de un estudiante con IA y persiste el resultado.
+    ---
+    tags:
+      - Revisiones
+    summary: Analiza codigo de un estudiante con IA y persiste el resultado.
+    description: >
+      Ejecuta el pipeline completo (Input Processor -> Prompt Builder -> LLM Service ->
+      Output Parser -> Response Validator) y guarda la revision en Supabase.
+      Autenticacion OPCIONAL: si se manda un JWT valido de Supabase Auth, la revision
+      queda asociada al estudiante (student_id); si no se manda ningun token, funciona
+      en modo anonimo con session_id (se genera uno nuevo si no se envia).
+    security:
+      - Bearer: []
+    parameters:
+      - in: header
+        name: Authorization
+        type: string
+        required: false
+        description: "Opcional. 'Bearer <jwt>' de Supabase Auth."
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required: [language, exercise, level, review_type, student_code]
+          properties:
+            language:
+              type: string
+              example: Python
+            exercise:
+              type: string
+              example: "Crear una funcion que sume dos numeros."
+            level:
+              type: string
+              example: Basico
+            review_type:
+              type: string
+              example: "Buenas practicas"
+            student_code:
+              type: string
+              example: "def suma(a, b): return a + b"
+            session_id:
+              type: string
+              description: Opcional. Si no se manda, se genera uno nuevo y se devuelve en la respuesta.
+    responses:
+      200:
+        description: Analisis completado (y persistido si Supabase respondio bien).
+        schema:
+          $ref: '#/definitions/ReviewResponse'
+      400:
+        description: Faltan campos requeridos, o el body no es JSON valido.
+      401:
+        description: Se mando un Authorization Bearer, pero el token es invalido o expiro.
+      502:
+        description: Fallo la comunicacion con el LLM (Gemini) tras los reintentos, o se excedio la cuota.
+      503:
+        description: La respuesta del LLM no cumple el Response Schema.
+    """
     payload = request.get_json(silent=True)
     if payload is None or not isinstance(payload, dict):
         return jsonify({"error": "El cuerpo de la solicitud debe ser un JSON valido."}), 400
@@ -79,6 +138,33 @@ def review_code():
 @review_bp.route("/api/reviews/mine", methods=["GET"])
 @require_auth
 def list_my_reviews():
+    """
+    Historial de revisiones del estudiante autenticado.
+    ---
+    tags:
+      - Revisiones
+    summary: Historial de revisiones del estudiante autenticado.
+    description: Autenticacion OBLIGATORIA (JWT de Supabase Auth).
+    security:
+      - Bearer: []
+    parameters:
+      - in: header
+        name: Authorization
+        type: string
+        required: true
+        description: "'Bearer <jwt>' de Supabase Auth."
+    responses:
+      200:
+        description: Revisiones del estudiante, ordenadas por created_at descendente. Vacia si no tiene ninguna.
+        schema:
+          type: array
+          items:
+            $ref: '#/definitions/ReviewRow'
+      401:
+        description: Falta el token, o es invalido/expirado.
+      502:
+        description: No se pudo consultar Supabase.
+    """
     try:
         rows = review_repository.list_reviews_by_student(g.student_id)
     except review_repository.RepositoryError as error:
@@ -89,6 +175,29 @@ def list_my_reviews():
 
 @review_bp.route("/api/reviews/<review_id>", methods=["GET"])
 def get_review(review_id):
+    """
+    Devuelve una revision puntual por id.
+    ---
+    tags:
+      - Revisiones
+    summary: Devuelve una revision puntual por id.
+    description: Publico, no requiere autenticacion.
+    parameters:
+      - in: path
+        name: review_id
+        type: string
+        required: true
+        description: UUID de la revision.
+    responses:
+      200:
+        description: La revision encontrada.
+        schema:
+          $ref: '#/definitions/ReviewRow'
+      404:
+        description: No existe una revision con ese id.
+      502:
+        description: No se pudo consultar Supabase.
+    """
     try:
         row = review_repository.get_review_by_id(review_id)
     except review_repository.RepositoryError as error:
@@ -102,6 +211,31 @@ def get_review(review_id):
 
 @review_bp.route("/api/reviews", methods=["GET"])
 def list_reviews():
+    """
+    Historial de revisiones de una sesion anonima.
+    ---
+    tags:
+      - Revisiones
+    summary: Historial de revisiones de una sesion anonima.
+    description: Publico, no requiere autenticacion.
+    parameters:
+      - in: query
+        name: session_id
+        type: string
+        required: true
+        description: session_id devuelto por POST /api/review.
+    responses:
+      200:
+        description: Revisiones de esa sesion, ordenadas por created_at descendente. Vacia si no hay ninguna.
+        schema:
+          type: array
+          items:
+            $ref: '#/definitions/ReviewRow'
+      400:
+        description: Falta el parametro session_id.
+      502:
+        description: No se pudo consultar Supabase.
+    """
     session_id = request.args.get("session_id")
     if not session_id:
         return jsonify({"error": "El parametro 'session_id' es requerido."}), 400
@@ -117,6 +251,62 @@ def list_reviews():
 @review_bp.route("/api/reviews/<review_id>/regenerate", methods=["POST"])
 @optional_auth
 def regenerate_review(review_id):
+    """
+    Regenera una revision existente (nueva pasada de analisis).
+    ---
+    tags:
+      - Revisiones
+    summary: Regenera una revision existente (nueva pasada de analisis).
+    description: >
+      Reutiliza language/exercise/level/review_type de la revision original. Crea una
+      fila NUEVA con parent_review_id apuntando a la original - nunca la sobrescribe.
+      Autenticacion OPCIONAL (misma logica que POST /api/review), pero quien pide debe
+      ser el dueno de la revision original (mismo student_id si es de un estudiante
+      autenticado, o mismo session_id si es anonima).
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: review_id
+        type: string
+        required: true
+        description: UUID de la revision a regenerar.
+      - in: header
+        name: Authorization
+        type: string
+        required: false
+        description: Requerido solo si la revision original pertenece a un estudiante autenticado.
+      - in: body
+        name: body
+        required: false
+        schema:
+          type: object
+          properties:
+            session_id:
+              type: string
+              description: Requerido si la revision original es anonima - debe coincidir exactamente.
+            student_code:
+              type: string
+              description: Opcional. Si no se manda, se reusa el student_code de la revision original.
+            motivo_regeneracion:
+              type: string
+              description: Opcional, texto libre explicando por que se pide la nueva revision.
+    responses:
+      200:
+        description: Nueva revision generada y persistida.
+        schema:
+          $ref: '#/definitions/ReviewResponse'
+      403:
+        description: >
+          Quien pide no es el dueno de la revision (session_id o student_id no coinciden).
+          Mensaje generico, no revela si el review_id existe ni de quien es.
+      404:
+        description: No existe una revision con ese review_id.
+      502:
+        description: Fallo la comunicacion con el LLM, o con Supabase.
+      503:
+        description: La respuesta del LLM no cumple el Response Schema.
+    """
     try:
         original = review_repository.get_review_by_id(review_id)
     except review_repository.RepositoryError as error:
@@ -183,6 +373,45 @@ def regenerate_review(review_id):
 @review_bp.route("/api/reviews/<review_id>/history", methods=["GET"])
 @optional_auth
 def review_history(review_id):
+    """
+    Cadena completa de revisiones relacionadas (original + regeneraciones).
+    ---
+    tags:
+      - Revisiones
+    summary: Cadena completa de revisiones relacionadas (original + regeneraciones).
+    description: Mismo ownership check que POST /api/reviews/{review_id}/regenerate.
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: review_id
+        type: string
+        required: true
+        description: UUID de cualquier revision de la cadena.
+      - in: query
+        name: session_id
+        type: string
+        required: false
+        description: Requerido si la cadena es anonima - debe coincidir exactamente.
+      - in: header
+        name: Authorization
+        type: string
+        required: false
+        description: Requerido solo si la cadena pertenece a un estudiante autenticado.
+    responses:
+      200:
+        description: Todas las revisiones relacionadas (la original y sus regeneraciones), ordenadas por created_at.
+        schema:
+          type: array
+          items:
+            $ref: '#/definitions/ReviewRow'
+      403:
+        description: Quien pide no es el dueno de la revision. Mensaje generico.
+      404:
+        description: No existe una revision con ese review_id.
+      502:
+        description: No se pudo consultar Supabase.
+    """
     try:
         original = review_repository.get_review_by_id(review_id)
     except review_repository.RepositoryError as error:

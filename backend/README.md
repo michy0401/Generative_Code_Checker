@@ -46,6 +46,7 @@ Copia `.env.example` a `.env` y completa los valores:
 | `DEBUG` | `True`/`False`. Habilita el modo debug de Flask. |
 | `SUPABASE_URL` | URL del proyecto de Supabase. Tambien se usa para construir la URL del JWKS al validar JWT (ver `docs/AUTH_PARA_FRONTEND.md`). |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role key de Supabase (acceso con privilegios, solo backend). |
+| `ALLOWED_ORIGINS` | Lista de origenes permitidos para CORS, separados por coma (ej. `http://localhost:3000,http://127.0.0.1:3000`). Nunca se usa `"*"`: el sistema maneja JWT. |
 
 `GOOGLE_API_KEY` solo es necesaria para `tests/test_llm_connection.py`, `tests/check_models.py`
 y para el endpoint `POST /api/review` en uso real. `tests/test_mock_connection.py` no la necesita.
@@ -62,27 +63,23 @@ python app.py
 flask --app app run
 ```
 
-- `GET /health` -> `{"status": "ok"}`
-- `POST /api/review` -> recibe `language`, `exercise`, `level`, `review_type`, `student_code` y,
-  opcionalmente, `session_id` (si no se envia, se genera uno nuevo). Devuelve la respuesta validada
-  contra `schemas/response_schema.json`, mas `review_id` y `session_id`.
-- `GET /api/reviews/<review_id>` -> una revision puntual. 404 si no existe.
-- `GET /api/reviews?session_id=<session_id>` -> historial de revisiones de esa sesion, mas recientes
-  primero. Lista vacia si no hay ninguna.
-- `GET /api/reviews/mine` -> historial del estudiante autenticado. Requiere
-  `Authorization: Bearer <token>` valido (Supabase Auth). Ver `docs/AUTH_PARA_FRONTEND.md`.
-- `POST /api/reviews/<review_id>/regenerate` -> reanaliza una revision existente (mismo
-  `language`/`exercise`/`level`/`review_type`; `student_code` nuevo si se manda, si no el
-  original). Body opcional: `session_id` (requerido si la revision original es anonima),
-  `student_code`, `motivo_regeneracion` (texto libre). Crea una fila nueva con
-  `parent_review_id` apuntando a la original - nunca sobrescribe la original. `404` si
-  `review_id` no existe; `403` si quien pide no es el dueno (mismo `student_id` del JWT, o
-  mismo `session_id` para revisiones anonimas).
-- `GET /api/reviews/<review_id>/history` -> la cadena completa de revisiones relacionadas
-  (la original y todas sus regeneraciones), ordenadas por `created_at`. Mismo ownership check
-  que `/regenerate` (para revisiones anonimas, pasar `?session_id=...`).
+## Documentacion interactiva de la API (Swagger)
 
-`POST /api/review` acepta opcionalmente el mismo header `Authorization: Bearer <token>`: si el
+Con el servidor corriendo, **`GET /api/docs`** tiene la referencia completa y actualizada de
+los 7 endpoints (`/health`, `/api/review`, `/api/reviews/<id>`, `/api/reviews`, `/api/reviews/mine`,
+`/api/reviews/<id>/regenerate`, `/api/reviews/<id>/history`): metodo, parametros, si requiere
+autenticacion (y de que tipo), estructura de respuesta y todos los codigos de status posibles.
+Se puede probar cada endpoint directamente desde el navegador, incluyendo pegar un JWT en el
+boton "Authorize" para los que lo requieren o aceptan.
+
+El JSON crudo de la spec (OpenAPI/Swagger 2.0) esta en `GET /api/openapi.json`, para importar en
+Postman o generadores de clientes.
+
+Este README y `docs/AUTH_PARA_FRONTEND.md` explican el panorama general y el flujo de
+autenticacion; para el detalle tecnico de cada endpoint (parametros exactos, respuestas, codigos
+de error), `/api/docs` es la fuente de verdad.
+
+`POST /api/review` acepta opcionalmente el header `Authorization: Bearer <token>`: si el
 token es valido, la revision queda asociada al `student_id` del usuario; si no se manda ningun
 token, sigue funcionando en modo anonimo con `session_id` (comportamiento identico al anterior).
 El backend nunca implementa signup/login - eso es responsabilidad del frontend con `supabase-js`
@@ -108,7 +105,7 @@ python tests/test_api_manual.py
 
 ```
 backend/
-├── app.py                        # Application factory de Flask
+├── app.py                        # Application factory de Flask (CORS + Swagger se configuran aca)
 ├── config.py                      # Configuracion por entorno (.env)
 ├── logging_config.py              # Configuracion centralizada de logging
 ├── requirements.txt

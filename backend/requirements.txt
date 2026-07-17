@@ -4,3 +4,5 @@ google-genai>=1.0
 jsonschema>=4.21
 supabase>=2.0
 PyJWT[crypto]>=2.8
+flask-cors>=4.0
+flasgger>=0.9.7

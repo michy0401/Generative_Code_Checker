@@ -46,17 +46,15 @@ funcionaba antes de que existiera login.
 
 ## Que endpoints requieren token y cuales no
 
-| Endpoint | Token requerido | Comportamiento |
-|---|---|---|
-| `POST /api/review` | Opcional | Sin token: funciona anonimo con `session_id` (igual que siempre). Con token valido: la revision queda asociada al `student_id` del usuario. Con token invalido/expirado: `401`. |
-| `GET /api/reviews/<id>` | No | Publico, no cambia. |
-| `GET /api/reviews?session_id=...` | No | Historial anonimo por sesion, no cambia. |
-| `GET /api/reviews/mine` | **Si, obligatorio** | Devuelve el historial del estudiante logueado. Sin token, o con token invalido: `401`. |
+Cada endpoint indica en `GET /api/docs` (Swagger, con el servidor corriendo) si la autenticacion
+es opcional u obligatoria, y todos los codigos de respuesta posibles (incluyendo los `401`/`403`
+relacionados a auth) - esa es la fuente de verdad para el detalle exacto endpoint por endpoint.
+En resumen: la mayoria de los endpoints de lectura son publicos, `POST /api/review` y
+`POST /api/reviews/<id>/regenerate` aceptan token opcional (cambia el comportamiento, no lo
+bloquean), y `GET /api/reviews/mine` lo exige.
 
-## Errores que puede devolver el backend por temas de auth
-
-- **401** con `{"error": "Token invalido o expirado."}` si el `Authorization: Bearer <token>` que se manda no es valido (mal formado, firma incorrecta, o vencido). El backend nunca lo trata como anonimo en silencio: si mandaste un token, se valida.
-- **401** con `{"error": "Se requiere autenticacion."}` en `GET /api/reviews/mine` si no se manda ningun token.
+Una regla que **no** cambia entre endpoints: si se manda un `Authorization: Bearer <token>` y ese
+token es invalido o expiro, el backend nunca lo trata como anonimo en silencio - corta con `401`.
 
 ## Detalle tecnico (por si hace falta debuggear)
 

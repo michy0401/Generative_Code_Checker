@@ -1,11 +1,154 @@
 """Entry point de la aplicacion Flask - application factory."""
 
 # pyrefly: ignore [missing-import]
+from flasgger import Swagger
+# pyrefly: ignore [missing-import]
 from flask import Flask, jsonify
+# pyrefly: ignore [missing-import]
+from flask_cors import CORS
 
 from config import get_config
 from logging_config import configure_logging
 from routes.review import review_bp
+
+SWAGGER_CONFIG = {
+    "headers": [],
+    "specs": [
+        {
+            "endpoint": "apispec",
+            "route": "/api/openapi.json",
+            "rule_filter": lambda rule: True,
+            "model_filter": lambda tag: True,
+        }
+    ],
+    "static_url_path": "/flasgger_static",
+    "swagger_ui": True,
+    "specs_route": "/api/docs/",
+}
+
+SWAGGER_TEMPLATE = {
+    "swagger": "2.0",
+    "info": {
+        "title": "Sistema Inteligente de Revision de Codigo - API",
+        "description": (
+            "Backend de revision de codigo con IA (Input Processor -> Prompt Builder -> "
+            "LLM Service -> Output Parser -> Response Validator), persistencia en Supabase "
+            "y autenticacion opcional via JWT de Supabase Auth. El login en si vive en el "
+            "frontend (supabase-js) - ver docs/AUTH_PARA_FRONTEND.md."
+        ),
+        "version": "1.0.0",
+    },
+    "securityDefinitions": {
+        "Bearer": {
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header",
+            "description": (
+                "JWT de una sesion de Supabase Auth. Formato: 'Bearer <access_token>'. "
+                "Requerido solo en los endpoints marcados como autenticacion obligatoria; "
+                "opcional (cambia el comportamiento pero no bloquea) en los demas."
+            ),
+        }
+    },
+    "definitions": {
+        "Summary": {
+            "type": "object",
+            "required": ["language", "review_type", "overall_assessment", "score"],
+            "properties": {
+                "language": {"type": "string"},
+                "review_type": {"type": "string"},
+                "overall_assessment": {"type": "string"},
+                "score": {"type": "integer", "minimum": 0, "maximum": 100},
+            },
+        },
+        "Finding": {
+            "type": "object",
+            "required": ["id", "category", "severity", "title", "description", "line"],
+            "properties": {
+                "id": {"type": "integer"},
+                "category": {"type": "string", "enum": ["Error", "Improvement", "Recommendation"]},
+                "severity": {"type": "string", "enum": ["High", "Medium", "Low"]},
+                "title": {"type": "string"},
+                "description": {"type": "string"},
+                "line": {"type": "integer", "minimum": 1},
+            },
+        },
+        "Explanation": {
+            "type": "object",
+            "required": ["finding_id", "why", "impact", "how_to_fix"],
+            "properties": {
+                "finding_id": {"type": "integer"},
+                "why": {"type": "string"},
+                "impact": {"type": "string"},
+                "how_to_fix": {"type": "string"},
+            },
+        },
+        "SuggestedCode": {
+            "type": "object",
+            "required": ["improved_code", "changes_summary"],
+            "properties": {
+                "improved_code": {"type": "string"},
+                "changes_summary": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        "TestCase": {
+            "type": "object",
+            "required": ["title", "description", "expected_result"],
+            "properties": {
+                "title": {"type": "string"},
+                "description": {"type": "string"},
+                "expected_result": {"type": "string"},
+            },
+        },
+        "ReviewResponse": {
+            "type": "object",
+            "description": (
+                "Cumple exactamente schemas/response_schema.json (Response Schema v1.0), "
+                "mas los metadatos de persistencia agregados por el endpoint."
+            ),
+            "required": ["summary", "findings", "explanation", "suggested_code", "tests", "warnings"],
+            "properties": {
+                "review_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "Id de la revision persistida en Supabase. Ausente/null si fallo la persistencia (el analisis se devuelve igual).",
+                },
+                "session_id": {
+                    "type": "string",
+                    "description": "Id de sesion anonima (generado automaticamente si no se envio uno).",
+                },
+                "parent_review_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "Solo presente en la respuesta de /regenerate: apunta a la revision original.",
+                },
+                "summary": {"$ref": "#/definitions/Summary"},
+                "findings": {"type": "array", "items": {"$ref": "#/definitions/Finding"}},
+                "explanation": {"type": "array", "items": {"$ref": "#/definitions/Explanation"}},
+                "suggested_code": {"$ref": "#/definitions/SuggestedCode"},
+                "tests": {"type": "array", "items": {"$ref": "#/definitions/TestCase"}},
+                "warnings": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        "ReviewRow": {
+            "type": "object",
+            "description": "Fila cruda de la tabla `reviews`, tal como la devuelven los endpoints GET.",
+            "properties": {
+                "id": {"type": "string", "format": "uuid"},
+                "student_id": {"type": "string", "format": "uuid", "description": "null si es una revision anonima."},
+                "session_id": {"type": "string", "description": "null si la revision pertenece a un estudiante autenticado."},
+                "parent_review_id": {"type": "string", "format": "uuid", "description": "null si es una revision original (no una regeneracion)."},
+                "language": {"type": "string"},
+                "exercise": {"type": "string"},
+                "level": {"type": "string"},
+                "review_type": {"type": "string"},
+                "student_code": {"type": "string"},
+                "response": {"$ref": "#/definitions/ReviewResponse"},
+                "created_at": {"type": "string", "format": "date-time"},
+            },
+        },
+    },
+}
 
 
 def create_app():
@@ -14,10 +157,37 @@ def create_app():
     app = Flask(__name__)
     app.config.from_object(get_config())
 
+    CORS(
+        app,
+        origins=app.config["ALLOWED_ORIGINS"],
+        supports_credentials=False,
+        allow_headers=["Content-Type", "Authorization"],
+        methods=["GET", "POST", "OPTIONS"],
+    )
+
+    Swagger(app, config=SWAGGER_CONFIG, template=SWAGGER_TEMPLATE)
+
     app.register_blueprint(review_bp)
 
     @app.route("/health", methods=["GET"])
     def health():
+        """
+        Chequeo de salud del servidor.
+        ---
+        tags:
+          - Sistema
+        summary: Chequeo de salud del servidor.
+        description: No requiere autenticacion.
+        responses:
+          200:
+            description: El servidor esta funcionando.
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  example: ok
+        """
         return jsonify({"status": "ok"})
 
     @app.errorhandler(404)
