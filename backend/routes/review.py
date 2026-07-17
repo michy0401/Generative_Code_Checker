@@ -3,10 +3,11 @@
 import logging
 import uuid
 
-from flask import Blueprint, g, jsonify, request
+from flask import Blueprint, current_app, g, jsonify, request
 
 import repositories.review_repository as review_repository
 import services.review_ownership as review_ownership
+from extensions import limiter
 from middleware.auth import optional_auth, require_auth
 from services.llm_connector import (
     InputValidationError,
@@ -17,6 +18,7 @@ from services.llm_connector import (
 
 OWNERSHIP_ERROR = "No tenes permiso para regenerar esta revision"
 HISTORY_OWNERSHIP_ERROR = "No tenes permiso para acceder a esta revision"
+GET_REVIEW_OWNERSHIP_ERROR = "No tenes permiso para acceder a esta revision"
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +26,7 @@ review_bp = Blueprint("review", __name__)
 
 
 @review_bp.route("/api/review", methods=["POST"])
+@limiter.limit(lambda: current_app.config["REVIEW_RATE_LIMIT"])
 @optional_auth
 def review_code():
     """
@@ -38,6 +41,7 @@ def review_code():
       Autenticacion OPCIONAL: si se manda un JWT valido de Supabase Auth, la revision
       queda asociada al estudiante (student_id); si no se manda ningun token, funciona
       en modo anonimo con session_id (se genera uno nuevo si no se envia).
+      Rate limit por IP (configurable via REVIEW_RATE_LIMIT): consume cuota del LLM.
     security:
       - Bearer: []
     parameters:
@@ -68,6 +72,9 @@ def review_code():
             student_code:
               type: string
               example: "def suma(a, b): return a + b"
+              description: >
+                Maximo MAX_STUDENT_CODE_CHARS caracteres (default 20000). El body completo
+                del request tambien esta limitado por MAX_REQUEST_SIZE_BYTES (default 100 KB).
             session_id:
               type: string
               description: Opcional. Si no se manda, se genera uno nuevo y se devuelve en la respuesta.
@@ -77,9 +84,15 @@ def review_code():
         schema:
           $ref: '#/definitions/ReviewResponse'
       400:
-        description: Faltan campos requeridos, o el body no es JSON valido.
+        description: >
+          Faltan campos requeridos, el body no es JSON valido, o student_code excede
+          MAX_STUDENT_CODE_CHARS.
       401:
         description: Se mando un Authorization Bearer, pero el token es invalido o expiro.
+      413:
+        description: El body del request excede MAX_REQUEST_SIZE_BYTES.
+      429:
+        description: Se alcanzo el rate limit propio del backend para esta IP (no la cuota de Gemini).
       502:
         description: Fallo la comunicacion con el LLM (Gemini) tras los reintentos, o se excedio la cuota.
       503:
@@ -174,6 +187,7 @@ def list_my_reviews():
 
 
 @review_bp.route("/api/reviews/<review_id>", methods=["GET"])
+@optional_auth
 def get_review(review_id):
     """
     Devuelve una revision puntual por id.
@@ -181,18 +195,37 @@ def get_review(review_id):
     tags:
       - Revisiones
     summary: Devuelve una revision puntual por id.
-    description: Publico, no requiere autenticacion.
+    description: >
+      Mismo ownership check que /regenerate y /history: si la revision pertenece a un
+      estudiante autenticado, se exige un JWT valido de ese mismo estudiante; si es
+      anonima, se exige el session_id exacto como query param.
+    security:
+      - Bearer: []
     parameters:
       - in: path
         name: review_id
         type: string
         required: true
         description: UUID de la revision.
+      - in: query
+        name: session_id
+        type: string
+        required: false
+        description: Requerido si la revision es anonima - debe coincidir exactamente.
+      - in: header
+        name: Authorization
+        type: string
+        required: false
+        description: Requerido solo si la revision pertenece a un estudiante autenticado.
     responses:
       200:
         description: La revision encontrada.
         schema:
           $ref: '#/definitions/ReviewRow'
+      403:
+        description: >
+          Quien pide no es el dueno de la revision (session_id o student_id no coinciden).
+          Mensaje generico, no revela si el review_id existe ni de quien es.
       404:
         description: No existe una revision con ese id.
       502:
@@ -205,6 +238,10 @@ def get_review(review_id):
 
     if row is None:
         return jsonify({"error": "Revision no encontrada."}), 404
+
+    session_id = request.args.get("session_id")
+    if not review_ownership.is_owner(row, student_id=g.student_id, session_id=session_id):
+        return jsonify({"error": GET_REVIEW_OWNERSHIP_ERROR}), 403
 
     return jsonify(row), 200
 
@@ -249,6 +286,7 @@ def list_reviews():
 
 
 @review_bp.route("/api/reviews/<review_id>/regenerate", methods=["POST"])
+@limiter.limit(lambda: current_app.config["REVIEW_RATE_LIMIT"])
 @optional_auth
 def regenerate_review(review_id):
     """
@@ -263,6 +301,7 @@ def regenerate_review(review_id):
       Autenticacion OPCIONAL (misma logica que POST /api/review), pero quien pide debe
       ser el dueno de la revision original (mismo student_id si es de un estudiante
       autenticado, o mismo session_id si es anonima).
+      Rate limit por IP (configurable via REVIEW_RATE_LIMIT): consume cuota del LLM.
     security:
       - Bearer: []
     parameters:
@@ -302,6 +341,10 @@ def regenerate_review(review_id):
           Mensaje generico, no revela si el review_id existe ni de quien es.
       404:
         description: No existe una revision con ese review_id.
+      413:
+        description: El body del request excede MAX_REQUEST_SIZE_BYTES.
+      429:
+        description: Se alcanzo el rate limit propio del backend para esta IP (no la cuota de Gemini).
       502:
         description: Fallo la comunicacion con el LLM, o con Supabase.
       503:

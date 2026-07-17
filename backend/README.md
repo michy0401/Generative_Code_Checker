@@ -47,6 +47,9 @@ Copia `.env.example` a `.env` y completa los valores:
 | `SUPABASE_URL` | URL del proyecto de Supabase. Tambien se usa para construir la URL del JWKS al validar JWT (ver `docs/AUTH_PARA_FRONTEND.md`). |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role key de Supabase (acceso con privilegios, solo backend). |
 | `ALLOWED_ORIGINS` | Lista de origenes permitidos para CORS, separados por coma (ej. `http://localhost:3000,http://127.0.0.1:3000`). Nunca se usa `"*"`: el sistema maneja JWT. |
+| `MAX_REQUEST_SIZE_BYTES` | Tamano maximo (bytes) del body de un request. Default `102400` (100 KB). Si se supera, Flask responde `413` en JSON. |
+| `MAX_STUDENT_CODE_CHARS` | Cantidad maxima de caracteres de `student_code`. Default `20000`. Si se supera, el Input Processor corta con `400` antes de llamar al LLM (no gasta cuota de Gemini). |
+| `REVIEW_RATE_LIMIT` | Limite de requests por IP a `POST /api/review` y `POST /api/reviews/<id>/regenerate` (los dos endpoints que consumen cuota del LLM), formato de `flask-limiter` (ej. `30 per minute`). Default `30 per minute`. Al superarse, responde `429` en JSON con un mensaje que aclara que es un limite propio del backend, no la cuota de Gemini. |
 
 `GOOGLE_API_KEY` solo es necesaria para `tests/test_llm_connection.py`, `tests/check_models.py`
 y para el endpoint `POST /api/review` en uso real. `tests/test_mock_connection.py` no la necesita.
@@ -97,7 +100,7 @@ python tests/test_llm_connection.py
 # Lista los modelos disponibles para la API key configurada
 python tests/check_models.py
 
-# Con el servidor corriendo (python app.py) en otra terminal: 16 casos end-to-end
+# Con el servidor corriendo (python app.py) en otra terminal: 21 casos end-to-end
 python tests/test_api_manual.py
 ```
 

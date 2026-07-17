@@ -1,15 +1,22 @@
 """Entry point de la aplicacion Flask - application factory."""
 
+import logging
+
 # pyrefly: ignore [missing-import]
 from flasgger import Swagger
 # pyrefly: ignore [missing-import]
 from flask import Flask, jsonify
 # pyrefly: ignore [missing-import]
 from flask_cors import CORS
+# pyrefly: ignore [missing-import]
+from werkzeug.exceptions import HTTPException
 
 from config import get_config
+from extensions import limiter
 from logging_config import configure_logging
 from routes.review import review_bp
+
+logger = logging.getLogger(__name__)
 
 SWAGGER_CONFIG = {
     "headers": [],
@@ -165,6 +172,8 @@ def create_app():
         methods=["GET", "POST", "OPTIONS"],
     )
 
+    limiter.init_app(app)
+
     Swagger(app, config=SWAGGER_CONFIG, template=SWAGGER_TEMPLATE)
 
     app.register_blueprint(review_bp)
@@ -190,12 +199,56 @@ def create_app():
         """
         return jsonify({"status": "ok"})
 
+    if app.config["DEBUG"]:
+        @app.route("/api/_internal/test-crash", methods=["GET"])
+        def _test_crash():
+            """
+            [Solo DEBUG] Fuerza una excepcion no controlada (para tests).
+            ---
+            tags:
+              - Interno
+            summary: Solo existe si DEBUG=True. Fuerza un crash para verificar que la respuesta siga siendo JSON.
+            description: >
+              Usado por tests/test_api_manual.py para confirmar que una excepcion no controlada
+              devuelve JSON 500 (no el debugger HTML de Werkzeug) incluso con DEBUG=True. No existe
+              cuando DEBUG=False (no se registra esta ruta en produccion).
+            responses:
+              500:
+                description: Excepcion forzada, capturada por el errorhandler generico.
+            """
+            raise RuntimeError("Crash de prueba forzado (tests/test_api_manual.py).")
+
     @app.errorhandler(404)
     def not_found(_error):
         return jsonify({"error": "Recurso no encontrado."}), 404
 
+    @app.errorhandler(413)
+    def request_too_large(_error):
+        return jsonify({"error": "El cuerpo de la solicitud excede el tamano maximo permitido."}), 413
+
+    @app.errorhandler(429)
+    def rate_limited(_error):
+        return jsonify({
+            "error": (
+                "Se alcanzo el limite de solicitudes de este backend para tu IP "
+                "(no relacionado con la cuota de Gemini). Espera un momento e intenta de nuevo."
+            )
+        }), 429
+
     @app.errorhandler(500)
     def internal_error(_error):
+        return jsonify({"error": "Error interno del servidor."}), 500
+
+    @app.errorhandler(Exception)
+    def unhandled_exception(error):
+        # Los HTTPException (404/413/429/etc.) nunca llegan aca en la practica: Flask los
+        # resuelve por codigo antes de caer en el handler generico. Este catch-all cubre
+        # cualquier excepcion de Python no anticipada (bugs), y es lo que garantiza JSON
+        # incluso con DEBUG=True: sin este handler, Flask deja que el debugger interactivo
+        # de Werkzeug (HTML) tome esas excepciones en vez de pasar por @app.errorhandler(500).
+        if isinstance(error, HTTPException):
+            return error
+        logger.exception("Excepcion no controlada: %s", error)
         return jsonify({"error": "Error interno del servidor."}), 500
 
     return app

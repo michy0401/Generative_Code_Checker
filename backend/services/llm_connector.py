@@ -41,6 +41,11 @@ RETRY_BACKOFF_SECONDS = 1.5
 
 REQUIRED_FIELDS = ["language", "exercise", "level", "review_type", "student_code"]
 
+# Un ejercicio de estudiante tipico son unas pocas decenas a unos cientos de lineas;
+# 20000 caracteres da margen generoso (varios cientos de lineas) sin dejar pasar
+# payloads desproporcionados que gastarian una llamada al LLM en vano.
+MAX_STUDENT_CODE_CHARS = int(os.getenv("MAX_STUDENT_CODE_CHARS", 20000))
+
 _SCHEMA_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "schemas", "response_schema.json")
 
 with open(_SCHEMA_PATH, "r", encoding="utf-8") as _schema_file:
@@ -97,7 +102,16 @@ def _process_input(language, exercise, level, review_type, student_code):
             f"Faltan campos requeridos o estan vacios: {', '.join(missing)}"
         )
 
-    return {name: str(value).strip() for name, value in raw_fields.items()}
+    cleaned = {name: str(value).strip() for name, value in raw_fields.items()}
+
+    code_length = len(cleaned["student_code"])
+    if code_length > MAX_STUDENT_CODE_CHARS:
+        raise InputValidationError(
+            f"El codigo enviado excede el limite de {MAX_STUDENT_CODE_CHARS} caracteres "
+            f"(recibido: {code_length})."
+        )
+
+    return cleaned
 
 
 def _build_regeneration_context(previous_review, motivo_regeneracion):

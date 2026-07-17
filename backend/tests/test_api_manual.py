@@ -5,7 +5,7 @@ Uso:
     1. En una terminal: python app.py
     2. En otra terminal: python tests/test_api_manual.py
 
-No es un test de pytest: es un vistazo rapido de 16 casos mientras se
+No es un test de pytest: es un vistazo rapido de 21 casos mientras se
 desarrolla, pensado para correrse a mano contra el servidor local.
 """
 
@@ -39,7 +39,7 @@ BASE_URL = "http://127.0.0.1:5000"
 REVIEW_URL = f"{BASE_URL}/api/review"
 SCHEMA_KEYS = {"summary", "findings", "explanation", "suggested_code", "tests", "warnings"}
 
-TOTAL_CASES = 16
+TOTAL_CASES = 21
 results = []  # (index, label, ok, detail)
 
 
@@ -250,6 +250,9 @@ def case_7_quota_exceeded_mock():
 
 
 # --- Caso 8: GET /api/reviews/<id> devuelve la revision persistida -------
+# Manda el session_id de la revision anonima del caso feliz: desde que GET /api/reviews/<id>
+# aplica ownership (ver caso 17), leer una revision anonima sin el session_id correcto
+# ahora da 403 en vez de 200 - este caso pasa a mandarlo, como haria cualquier caller real.
 
 def case_8_get_review_by_id(happy_path_data):
     if happy_path_data is None:
@@ -257,6 +260,7 @@ def case_8_get_review_by_id(happy_path_data):
         return
 
     review_id = happy_path_data.get("review_id")
+    session_id = happy_path_data.get("session_id")
     if not review_id:
         report(
             8, "GET revision por id", False,
@@ -265,7 +269,10 @@ def case_8_get_review_by_id(happy_path_data):
         )
         return
 
-    status, body = get(f"{BASE_URL}/api/reviews/{urllib.parse.quote(str(review_id))}")
+    status, body = get(
+        f"{BASE_URL}/api/reviews/{urllib.parse.quote(str(review_id))}"
+        f"?session_id={urllib.parse.quote(str(session_id))}"
+    )
     if status != 200:
         report(8, "GET revision por id", False, f"esperado 200, recibido {status}: {body[:200]}")
         return
@@ -582,6 +589,204 @@ def case_16_foreign_student_forbidden():
                 _cleanup_test_user(admin_client, uid, 16)
 
 
+# --- Caso 17: GET /api/reviews/<id> aplica ownership (hallazgo de la auditoria) ----
+# Reproduce el exploit exacto que encontro docs/AUDITORIA_BACKEND.md: antes de esta
+# tarea, este endpoint no llamaba a review_ownership.is_owner() en ningun punto y
+# devolvia la fila completa (incluyendo student_code y student_id) a cualquiera con
+# el UUID, sin token ni session_id.
+
+def case_17_get_review_ownership_enforced():
+    admin_client, auth_client = _get_supabase_admin_clients()
+    if admin_client is None:
+        report(17, "Ownership en GET /reviews/<id>", False, "faltan SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY en .env")
+        return
+
+    user_id = None
+
+    try:
+        try:
+            user_id, token = _create_and_sign_in_test_user(admin_client, auth_client)
+        except Exception as error:
+            report(17, "Ownership en GET /reviews/<id>", False, f"no se pudo crear/loguear el usuario de prueba: {error}")
+            return
+
+        payload = {
+            "language": "Python",
+            "exercise": "Crear una funcion que sume dos numeros.",
+            "level": "Basico",
+            "review_type": "Buenas practicas",
+            "student_code": "def suma(a, b): return a + b",
+        }
+        status, body = post_json(REVIEW_URL, payload, headers={"Authorization": f"Bearer {token}"})
+        if status != 200:
+            report(17, "Ownership en GET /reviews/<id>", False, f"POST /api/review esperado 200, recibido {status}: {body[:200]}")
+            return
+
+        review_id = json.loads(body).get("review_id")
+        if not review_id:
+            report(17, "Ownership en GET /reviews/<id>", False, "no se obtuvo review_id (¿fallo la persistencia?)")
+            return
+
+        get_url = f"{BASE_URL}/api/reviews/{review_id}"
+
+        # El exploit original: leer sin token ni session_id.
+        status_no_auth, body_no_auth = get(get_url)
+        if status_no_auth != 403:
+            report(
+                17, "Ownership en GET /reviews/<id>", False,
+                f"sin auth esperado 403, recibido {status_no_auth}: {body_no_auth[:200]}",
+            )
+            return
+
+        # El dueno real si debe poder seguir leyendola.
+        status_owner, body_owner = get(get_url, headers={"Authorization": f"Bearer {token}"})
+        if status_owner != 200:
+            report(
+                17, "Ownership en GET /reviews/<id>", False,
+                f"el dueno esperado 200, recibido {status_owner}: {body_owner[:200]}",
+            )
+            return
+
+        report(17, "Ownership en GET /reviews/<id>", True, "403 sin auth, 200 para el dueno")
+    finally:
+        if user_id:
+            _cleanup_test_user(admin_client, user_id, 17)
+
+
+# --- Caso 18: excepcion no controlada devuelve JSON incluso con DEBUG=True --------
+# Antes de esta tarea, con DEBUG=True (la config real del .env) un crash no anticipado
+# devolvia el debugger interactivo de Werkzeug (HTML), no el JSON que definia
+# @app.errorhandler(500) - ese handler nunca se ejecutaba en la practica. Usa la ruta
+# interna /api/_internal/test-crash, que solo existe cuando DEBUG=True (ver app.py).
+
+def case_18_unhandled_exception_returns_json():
+    status, body = get(f"{BASE_URL}/api/_internal/test-crash")
+    if status != 500:
+        report(
+            18, "Excepcion no controlada -> JSON", False,
+            f"esperado 500, recibido {status}: {body[:200]}",
+        )
+        return
+
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError as error:
+        report(
+            18, "Excepcion no controlada -> JSON", False,
+            f"el 500 no es JSON valido (¿sigue devolviendo HTML?): {error}. Body: {body[:200]}",
+        )
+        return
+
+    if "error" not in data:
+        report(18, "Excepcion no controlada -> JSON", False, f"falta la clave 'error' en el JSON: {data}")
+        return
+
+    report(18, "Excepcion no controlada -> JSON", True, "500 JSON, no HTML")
+
+
+# --- Caso 19: body que excede MAX_CONTENT_LENGTH -> 413 JSON ----------------------
+
+def case_19_body_too_large():
+    huge_code = "x" * (200 * 1024)  # 200 KB, supera MAX_REQUEST_SIZE_BYTES (default 100 KB)
+    payload = {
+        "language": "Python",
+        "exercise": "Test tamano de body",
+        "level": "Basico",
+        "review_type": "Buenas practicas",
+        "student_code": huge_code,
+    }
+    status, body = post_json(REVIEW_URL, payload)
+    if status != 413:
+        report(19, "Body excede MAX_CONTENT_LENGTH", False, f"esperado 413, recibido {status}: {body[:200]}")
+        return
+
+    try:
+        json.loads(body)
+    except json.JSONDecodeError as error:
+        report(
+            19, "Body excede MAX_CONTENT_LENGTH", False,
+            f"el 413 no es JSON valido: {error}. Body: {body[:200]}",
+        )
+        return
+
+    report(19, "Body excede MAX_CONTENT_LENGTH", True, "413 JSON")
+
+
+# --- Caso 20: student_code excede el limite de caracteres (sin exceder el body) ---
+# Distinto del caso 19: este body es chico (bien por debajo de MAX_REQUEST_SIZE_BYTES),
+# asi que el corte debe pasar en el Input Processor (400), no en el limite de tamano
+# del request completo (413).
+
+def case_20_student_code_char_limit():
+    long_code = "x = 1\n" * 4000  # ~24000 caracteres, supera MAX_STUDENT_CODE_CHARS (default 20000)
+    payload = {
+        "language": "Python",
+        "exercise": "Test limite de caracteres",
+        "level": "Basico",
+        "review_type": "Buenas practicas",
+        "student_code": long_code,
+    }
+    status, body = post_json(REVIEW_URL, payload)
+    ok = status == 400
+    report(
+        20, "student_code excede limite de caracteres", ok,
+        f"{status}" if ok else f"esperado 400, recibido {status}: {body[:200]}",
+    )
+
+
+# --- Caso 21: rate limit propio del backend en /api/review -----------------------
+# Debe ser el ULTIMO caso del script: agota deliberadamente el limite configurado
+# (REVIEW_RATE_LIMIT, default 30 per minute) para /api/review, dejando ese endpoint
+# rate-limited para el resto de la ventana de 1 minuto. Manda student_code vacio a
+# proposito: la vista corta con 400 antes de llamar al LLM, pero el rate limiter ya
+# cuenta el hit ANTES de que la vista se ejecute, asi que esto no gasta cuota real de
+# Gemini. Las llamadas reales anteriores a /api/review (casos 1, 2, 3, 4, 5, 10, 12,
+# 16, 19, 20) quedan repartidas a lo largo de varios minutos de wall-clock real (cada
+# llamada al LLM tarda ~10-15s), asi que para cuando se llega aca ya salieron de la
+# ventana de 1 minuto - este caso dispara, el solo, mas requests que el limite
+# configurado (bien por encima de 30) en una rafaga de menos de un segundo, para
+# garantizar el 429 sin depender de cuanto haya sobrevivido de los casos anteriores.
+
+def case_21_rate_limit_backend():
+    payload = {
+        "language": "Python",
+        "exercise": "Test rate limit",
+        "level": "Basico",
+        "review_type": "Buenas practicas",
+        # student_code omitido a proposito: 400 rapido, sin gastar cuota del LLM.
+    }
+    statuses = []
+    last_429_body = None
+    for _ in range(40):
+        status, body = post_json(REVIEW_URL, payload)
+        statuses.append(status)
+        if status == 429:
+            last_429_body = body
+            break
+
+    if 429 not in statuses:
+        report(
+            21, "Rate limit propio del backend", False,
+            f"no se alcanzo 429 tras {len(statuses)} requests seguidas; statuses: {statuses}",
+        )
+        return
+
+    try:
+        data = json.loads(last_429_body)
+    except (json.JSONDecodeError, TypeError) as error:
+        report(
+            21, "Rate limit propio del backend", False,
+            f"429 recibido pero la respuesta no es JSON valido: {error}",
+        )
+        return
+
+    if "error" not in data:
+        report(21, "Rate limit propio del backend", False, f"429 recibido pero sin clave 'error' en el JSON: {data}")
+        return
+
+    report(21, "Rate limit propio del backend", True, f"429 tras {len(statuses)} requests")
+
+
 def main():
     print(f"Verificando servidor en {BASE_URL} ...")
     if not check_server_is_up():
@@ -605,6 +810,11 @@ def main():
     case_14_regenerate_wrong_session(happy_path_data)
     case_15_regenerate_nonexistent()
     case_16_foreign_student_forbidden()
+    case_17_get_review_ownership_enforced()
+    case_18_unhandled_exception_returns_json()
+    case_19_body_too_large()
+    case_20_student_code_char_limit()
+    case_21_rate_limit_backend()
 
     ok_count = sum(1 for _, _, ok, _ in results if ok)
     print()

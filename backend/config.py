@@ -23,6 +23,16 @@ class Config:
         if origin.strip()
     ]
 
+    # Flask rechaza con 413 cualquier request cuyo body supere esto (ver @app.errorhandler(413)).
+    # Default 100 KB: muy por encima de cualquier ejercicio de estudiante razonable.
+    MAX_CONTENT_LENGTH = int(os.getenv("MAX_REQUEST_SIZE_BYTES", 100 * 1024))
+
+    # Limite de requests por IP a los endpoints que consumen cuota del LLM (/api/review,
+    # /api/reviews/<id>/regenerate). Formato de flask-limiter (ej. "30 per minute").
+    # El valor "correcto" depende de la cuota real del plan de Gemini en uso, por eso es
+    # configurable en vez de una constante fija.
+    REVIEW_RATE_LIMIT = os.getenv("REVIEW_RATE_LIMIT", "30 per minute")
+
 
 class DevelopmentConfig(Config):
     DEBUG = True
