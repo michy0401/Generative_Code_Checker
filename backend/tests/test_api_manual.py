@@ -5,11 +5,14 @@ Uso:
     1. En una terminal: python app.py
     2. En otra terminal: python tests/test_api_manual.py
 
-No es un test de pytest: es un vistazo rapido de 21 casos mientras se
-desarrolla, pensado para correrse a mano contra el servidor local.
+No es un test de pytest: es un vistazo rapido de 24 casos mientras se
+desarrolla, pensado para correrse a mano contra el servidor local. Para tests
+unitarios rapidos, sin servidor ni credenciales reales, ver tests/unit/ (correr
+con "pytest" desde la raiz de backend/).
 """
 
 import json
+import logging
 import os
 import sys
 import urllib.error
@@ -39,7 +42,7 @@ BASE_URL = "http://127.0.0.1:5000"
 REVIEW_URL = f"{BASE_URL}/api/review"
 SCHEMA_KEYS = {"summary", "findings", "explanation", "suggested_code", "tests", "warnings"}
 
-TOTAL_CASES = 21
+TOTAL_CASES = 24
 results = []  # (index, label, ok, detail)
 
 
@@ -86,6 +89,18 @@ def report(index, label, ok, detail=""):
         line += f" ({detail})"
     print(line)
     results.append((index, label, ok, detail))
+
+
+class _ListLogHandler(logging.Handler):
+    """Handler descartable para capturar logs de services.llm_connector durante un
+    test puntual (casos 22/23), en vez de confiar en inspeccion visual de la consola."""
+
+    def __init__(self):
+        super().__init__()
+        self.records = []
+
+    def emit(self, record):
+        self.records.append(self.format(record))
 
 
 # --- Caso 1: happy path ------------------------------------------------
@@ -787,6 +802,248 @@ def case_21_rate_limit_backend():
     report(21, "Rate limit propio del backend", True, f"429 tras {len(statuses)} requests")
 
 
+# --- Caso 22: Response Validator rechaza el primer intento, few-shot lo corrige --
+# Igual que el caso 7, esto mockea services.llm_connector._get_client() y llama a
+# analizar_codigo() DIRECTAMENTE (no via HTTP): mockear el cliente de Gemini del
+# proceso vivo del servidor (otro proceso, arrancado con "python app.py") no es
+# posible desde este script. El resultado sin excepcion es equivalente a lo que
+# routes/review.py convierte en 200; ResponseValidationError es lo que convierte
+# en 503 (ver routes/review.py:122 - no 502, ese codigo es solo para fallos de
+# comunicacion con el LLM, no para fallos de formato del Response Schema).
+
+def _valid_response_dict():
+    return {
+        "summary": {
+            "language": "Python",
+            "review_type": "Buenas practicas",
+            "overall_assessment": "Analisis de prueba (caso 22/23).",
+            "score": 80,
+        },
+        "findings": [],
+        "explanation": [],
+        "suggested_code": {"improved_code": "def f(): pass", "changes_summary": []},
+        "tests": [],
+        "warnings": [],
+    }
+
+
+def case_22_few_shot_retry_succeeds():
+    invalid_json = json.dumps({"summary": {"language": "Python"}})  # a proposito: faltan claves requeridas
+    valid_data = _valid_response_dict()
+    valid_json = json.dumps(valid_data)
+
+    fake_invalid_response = MagicMock()
+    fake_invalid_response.text = invalid_json
+    fake_valid_response = MagicMock()
+    fake_valid_response.text = valid_json
+
+    fake_client = MagicMock()
+    fake_client.models.generate_content.side_effect = [fake_invalid_response, fake_valid_response]
+
+    log_handler = _ListLogHandler()
+    llm_connector.logger.addHandler(log_handler)
+
+    try:
+        with patch.object(llm_connector, "_get_client", return_value=fake_client):
+            try:
+                result = llm_connector.analizar_codigo(
+                    language="Python",
+                    exercise="Test few-shot (caso 22)",
+                    level="Basico",
+                    review_type="Buenas practicas",
+                    student_code="def f(): pass",
+                )
+            except Exception as error:
+                report(
+                    22, "Few-shot corrige el formato (2do intento)", False,
+                    f"excepcion inesperada: {type(error).__name__}: {error}",
+                )
+                return
+    finally:
+        llm_connector.logger.removeHandler(log_handler)
+
+    if result != valid_data:
+        report(
+            22, "Few-shot corrige el formato (2do intento)", False,
+            f"el resultado final no coincide con la respuesta valida esperada: {result}",
+        )
+        return
+
+    call_count = fake_client.models.generate_content.call_count
+    if call_count != 2:
+        report(
+            22, "Few-shot corrige el formato (2do intento)", False,
+            f"se esperaban 2 llamadas al LLM (1 sin few-shot + 1 con few-shot), hubo {call_count}",
+        )
+        return
+
+    call_args_list = fake_client.models.generate_content.call_args_list
+    first_prompt = call_args_list[0].kwargs.get("contents", "")
+    second_prompt = call_args_list[1].kwargs.get("contents", "")
+
+    if "Ejemplo de referencia" in first_prompt:
+        report(
+            22, "Few-shot corrige el formato (2do intento)", False,
+            "el PRIMER intento ya incluia Few-Shot Examples (no deberia, solo el segundo)",
+        )
+        return
+
+    if "Ejemplo de referencia" not in second_prompt:
+        report(
+            22, "Few-shot corrige el formato (2do intento)", False,
+            "el segundo intento no incluyo el bloque de Few-Shot Examples en el prompt",
+        )
+        return
+
+    log_text = "\n".join(log_handler.records)
+    if "Few-Shot Examples" not in log_text:
+        report(
+            22, "Few-shot corrige el formato (2do intento)", False,
+            f"no se encontro el log de activacion del camino few-shot; logs capturados: {log_handler.records}",
+        )
+        return
+
+    report(22, "Few-shot corrige el formato (2do intento)", True, "resultado valido (equivalente a 200), log de few-shot presente")
+
+
+# --- Caso 23: ambos intentos fallan la validacion -> sigue fallando como antes ----
+
+def case_23_few_shot_retry_also_fails():
+    # Mismo JSON invalido en los dos intentos - ni el original ni el "corregido con
+    # few-shot" cumplen el schema.
+    invalid_json = json.dumps({"summary": {"language": "Python"}})
+
+    fake_response_1 = MagicMock()
+    fake_response_1.text = invalid_json
+    fake_response_2 = MagicMock()
+    fake_response_2.text = invalid_json
+
+    fake_client = MagicMock()
+    fake_client.models.generate_content.side_effect = [fake_response_1, fake_response_2]
+
+    with patch.object(llm_connector, "_get_client", return_value=fake_client):
+        try:
+            llm_connector.analizar_codigo(
+                language="Python",
+                exercise="Test few-shot sin exito (caso 23)",
+                level="Basico",
+                review_type="Buenas practicas",
+                student_code="def f(): pass",
+            )
+        except llm_connector.ResponseValidationError:
+            pass
+        except Exception as error:
+            report(
+                23, "Ambos intentos fallan -> error controlado", False,
+                f"excepcion inesperada: {type(error).__name__}: {error}",
+            )
+            return
+        else:
+            report(23, "Ambos intentos fallan -> error controlado", False, "no se lanzo ResponseValidationError")
+            return
+
+    call_count = fake_client.models.generate_content.call_count
+    if call_count != 2:
+        report(
+            23, "Ambos intentos fallan -> error controlado", False,
+            f"se esperaban exactamente 2 llamadas al LLM (sin reintentar de mas), hubo {call_count}",
+        )
+        return
+
+    report(
+        23, "Ambos intentos fallan -> error controlado", True,
+        "ResponseValidationError tras 2 intentos (equivalente al 503 real de routes/review.py, no 502)",
+    )
+
+
+# --- Caso 24: historial con una cadena de 3+ niveles de regeneracion -------------
+# Cobertura identificada como faltante en la auditoria: list_review_history() se
+# escribio para soportar profundidad arbitraria (sube hasta la raiz, despues baja
+# por niveles) pero nunca se habia probado con mas de 2 niveles. Regenera dos veces
+# seguidas (revision -> regeneracion 1 -> regeneracion 2) y confirma que /history
+# devuelve las 3, en el mismo orden, sin importar desde cual de las 3 se consulte.
+
+def case_24_history_three_levels():
+    payload = {
+        "language": "Python",
+        "exercise": "Test historial de 3+ niveles",
+        "level": "Basico",
+        "review_type": "Buenas practicas",
+        "student_code": "def suma(a, b): return a + b",
+    }
+    status, body = post_json(REVIEW_URL, payload)
+    if status != 200:
+        report(24, "Historial de 3+ niveles", False, f"POST /api/review esperado 200, recibido {status}: {body[:200]}")
+        return
+
+    data1 = json.loads(body)
+    review_id_1 = data1.get("review_id")
+    session_id = data1.get("session_id")
+    if not review_id_1 or not session_id:
+        report(24, "Historial de 3+ niveles", False, "la revision inicial no devolvio review_id/session_id")
+        return
+
+    status2, body2 = post_json(
+        f"{BASE_URL}/api/reviews/{review_id_1}/regenerate",
+        {"session_id": session_id, "motivo_regeneracion": "1ra regeneracion (caso 24)"},
+    )
+    if status2 != 200:
+        report(24, "Historial de 3+ niveles", False, f"1ra regeneracion esperado 200, recibido {status2}: {body2[:200]}")
+        return
+    review_id_2 = json.loads(body2).get("review_id")
+    if not review_id_2:
+        report(24, "Historial de 3+ niveles", False, "la 1ra regeneracion no devolvio review_id (¿fallo la persistencia?)")
+        return
+
+    status3, body3 = post_json(
+        f"{BASE_URL}/api/reviews/{review_id_2}/regenerate",
+        {"session_id": session_id, "motivo_regeneracion": "2da regeneracion, sobre la 1ra (caso 24)"},
+    )
+    if status3 != 200:
+        report(24, "Historial de 3+ niveles", False, f"2da regeneracion esperado 200, recibido {status3}: {body3[:200]}")
+        return
+    review_id_3 = json.loads(body3).get("review_id")
+    if not review_id_3:
+        report(24, "Historial de 3+ niveles", False, "la 2da regeneracion no devolvio review_id (¿fallo la persistencia?)")
+        return
+
+    expected_order = [review_id_1, review_id_2, review_id_3]
+    expected_ids = set(expected_order)
+
+    for query_id in expected_order:
+        status_h, body_h = get(
+            f"{BASE_URL}/api/reviews/{query_id}/history?session_id={urllib.parse.quote(session_id)}"
+        )
+        if status_h != 200:
+            report(
+                24, "Historial de 3+ niveles", False,
+                f"GET history consultando desde {query_id} esperado 200, recibido {status_h}: {body_h[:200]}",
+            )
+            return
+
+        try:
+            chain = json.loads(body_h)
+        except json.JSONDecodeError as error:
+            report(24, "Historial de 3+ niveles", False, f"la respuesta no es JSON valido: {error}")
+            return
+
+        chain_ids = [row.get("id") for row in chain]
+        if set(chain_ids) != expected_ids:
+            report(
+                24, "Historial de 3+ niveles", False,
+                f"consultando desde {query_id}: se esperaban {expected_ids}, se obtuvo {set(chain_ids)}",
+            )
+            return
+        if chain_ids != expected_order:
+            report(
+                24, "Historial de 3+ niveles", False,
+                f"consultando desde {query_id}: orden incorrecto, se esperaba {expected_order}, se obtuvo {chain_ids}",
+            )
+            return
+
+    report(24, "Historial de 3+ niveles", True, "3 niveles, mismo orden consultando desde cualquiera de los 3 ids")
+
+
 def main():
     print(f"Verificando servidor en {BASE_URL} ...")
     if not check_server_is_up():
@@ -814,7 +1071,14 @@ def main():
     case_18_unhandled_exception_returns_json()
     case_19_body_too_large()
     case_20_student_code_char_limit()
+    # case_24 (aunque su numero es mas alto) corre ANTES que case_21 a proposito:
+    # case_21 agota el rate limit de /api/review para el resto de la ventana de 1
+    # minuto, y case_24 todavia necesita hacer llamadas reales a /api/review y a
+    # /regenerate. case_21 sigue siendo el ultimo caso que golpea el servidor real.
+    case_24_history_three_levels()
     case_21_rate_limit_backend()
+    case_22_few_shot_retry_succeeds()
+    case_23_few_shot_retry_also_fails()
 
     ok_count = sum(1 for _, _, ok, _ in results if ok)
     print()

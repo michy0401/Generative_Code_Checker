@@ -51,6 +51,13 @@ _SCHEMA_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 with open(_SCHEMA_PATH, "r", encoding="utf-8") as _schema_file:
     RESPONSE_SCHEMA = json.load(_schema_file)
 
+# Historial completo de cambios en docs/PROMPT_CHANGELOG.md. Cualquier cambio futuro al
+# SYSTEM_PROMPT (en esta tarea o en cualquiera futura) DEBE venir acompanado de un bump
+# de PROMPT_VERSION + una entrada nueva en ese changelog - sin excepcion, aunque el cambio
+# parezca chico. Es la unica forma de que "Prompt Versioning" (seccion 7.5 del PDF de
+# arquitectura) siga siendo confiable con el tiempo.
+PROMPT_VERSION = "1.2"
+
 SYSTEM_PROMPT = """Actuas como un Ingeniero de Software Senior especializado en revision de \
 codigo con enfoque educativo.
 
@@ -65,6 +72,92 @@ Reglas que debes seguir siempre:
 - Responde UNICAMENTE con un objeto JSON que cumpla de forma exacta el Response \
 Schema entregado a continuacion. No agregues texto antes ni despues del JSON, ni \
 uses bloques de markdown (```)."""
+
+# Few-Shot Examples (seccion 5.5 del PDF de arquitectura): "no siempre seran enviados,
+# se utilizaran unicamente cuando sea necesario reforzar el formato esperado". Por eso
+# esta constante NO se agrega al prompt del primer intento (ver _build_prompt) - solo se
+# incluye en el reintento condicional que dispara analizar_codigo() cuando el Response
+# Validator rechaza la primera respuesta (ver mas abajo).
+FEW_SHOT_EXAMPLES = """Ejemplo de referencia (entrada y salida completa) para que tomes \
+como modelo del formato esperado:
+
+Entrada de ejemplo:
+- Lenguaje: Python
+- Ejercicio: Crear una funcion que calcule el promedio de una lista de numeros.
+- Nivel academico: Basico
+- Tipo de revision: Buenas practicas
+- Codigo del estudiante:
+def promedio(lista):
+    suma = 0
+    for i in range(len(lista)):
+        suma = suma + lista[i]
+    return suma / len(lista)
+
+Salida de ejemplo (JSON, cumple exactamente el Response Schema):
+{
+  "summary": {
+    "language": "Python",
+    "review_type": "Buenas practicas",
+    "overall_assessment": "El codigo cumple el objetivo basico, pero se puede simplificar usando funciones nativas de Python y no contempla el caso de una lista vacia.",
+    "score": 70
+  },
+  "findings": [
+    {
+      "id": 1,
+      "category": "Error",
+      "severity": "Medium",
+      "title": "Division por cero con lista vacia",
+      "description": "Si 'lista' esta vacia, 'len(lista)' es 0 y la division final resultaria en un ZeroDivisionError.",
+      "line": 4
+    },
+    {
+      "id": 2,
+      "category": "Improvement",
+      "severity": "Low",
+      "title": "Iteracion manual en vez de suma nativa",
+      "description": "El bucle for con range(len(...)) para acumular una suma se puede reemplazar por la funcion sum() incorporada de Python, mas legible y menos propensa a errores de indice.",
+      "line": 2
+    }
+  ],
+  "explanation": [
+    {
+      "finding_id": 1,
+      "why": "El calculo 'suma / len(lista)' no valida que 'lista' tenga al menos un elemento antes de dividir.",
+      "impact": "Si se llama a la funcion con una lista vacia, el programa se interrumpiria con una excepcion no controlada.",
+      "how_to_fix": "Agregar una verificacion explicita (por ejemplo 'if not lista: return 0') antes de calcular el promedio."
+    },
+    {
+      "finding_id": 2,
+      "why": "Recorrer indices manualmente para sumar valores es un patron mas largo y mas propenso a errores que usar las herramientas del lenguaje.",
+      "impact": "No afecta la correctitud del resultado, pero reduce la legibilidad y el mantenimiento del codigo.",
+      "how_to_fix": "Reemplazar el bucle por 'suma = sum(lista)'."
+    }
+  ],
+  "suggested_code": {
+    "improved_code": "def promedio(lista):\\n    if not lista:\\n        return 0\\n    return sum(lista) / len(lista)",
+    "changes_summary": [
+      "Se agrego una verificacion para listas vacias antes de dividir.",
+      "Se reemplazo el bucle manual de acumulacion por la funcion sum()."
+    ]
+  },
+  "tests": [
+    {
+      "title": "Promedio de una lista con varios elementos",
+      "description": "Llamar a promedio([2, 4, 6])",
+      "expected_result": "Debe devolver 4.0"
+    },
+    {
+      "title": "Promedio de una lista vacia",
+      "description": "Llamar a promedio([])",
+      "expected_result": "Debe devolver 0 en vez de lanzar una excepcion"
+    }
+  ],
+  "warnings": []
+}
+
+Fin del ejemplo de referencia. Segui exactamente esta misma estructura de claves para \
+la revision real que se te pide a continuacion, adaptando el contenido al codigo real \
+del estudiante."""
 
 
 class InputValidationError(Exception):
@@ -148,17 +241,19 @@ def _build_regeneration_context(previous_review, motivo_regeneracion):
     return "\n".join(lines) + "\n"
 
 
-def _build_prompt(inputs, previous_review=None, motivo_regeneracion=None):
+def _build_prompt(inputs, previous_review=None, motivo_regeneracion=None, include_few_shot=False):
     """Prompt Builder: combina variables, guardrails, el Response Schema y,
-    cuando aplica, el contexto de regeneracion (revision anterior / motivo)."""
+    cuando aplica, el contexto de regeneracion (revision anterior / motivo) y los
+    Few-Shot Examples (solo cuando include_few_shot=True; ver analizar_codigo)."""
     schema_text = json.dumps(RESPONSE_SCHEMA, ensure_ascii=False, indent=2)
     regeneration_context = _build_regeneration_context(previous_review, motivo_regeneracion)
+    few_shot_block = f"\n{FEW_SHOT_EXAMPLES}\n" if include_few_shot else ""
 
     return f"""{SYSTEM_PROMPT}
 
 Response Schema (debes cumplirlo exactamente):
 {schema_text}
-
+{few_shot_block}
 Datos de la revision:
 - Lenguaje: {inputs['language']}
 - Ejercicio: {inputs['exercise']}
@@ -214,6 +309,10 @@ def _call_llm(prompt):
     last_error = None
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
+            logger.info(
+                "Llamando a Gemini (modelo=%s, prompt_version=%s, intento=%s/%s)",
+                MODEL_NAME, PROMPT_VERSION, attempt, MAX_ATTEMPTS,
+            )
             response = client.models.generate_content(
                 model=MODEL_NAME, contents=prompt, config=config
             )
@@ -278,14 +377,35 @@ def analizar_codigo(
     esta revision es una regeneracion de una revision existente (ver
     POST /api/reviews/<id>/regenerate). No cambian el Response Schema de salida.
 
+    Si la primera respuesta no cumple el Response Schema, hace UN reintento adicional
+    con Few-Shot Examples incluidos en el prompt (seccion 5.5 del PDF de arquitectura),
+    distinto y separado del loop de reintentos por fallas transitorias de red/parseo de
+    _call_llm (MAX_ATTEMPTS) - este es un reintento de formato, no de comunicacion, y
+    cuenta aparte. Si ese segundo intento tampoco valida, se propaga
+    ResponseValidationError igual que si no existiera este mecanismo.
+
     Lanza:
         InputValidationError: si faltan campos requeridos.
         QuotaExceededError: si la cuota del proveedor fue excedida.
         LLMCommunicationError: si falla la comunicacion o el parseo del modelo.
-        ResponseValidationError: si la respuesta no cumple el Response Schema.
+        ResponseValidationError: si la respuesta no cumple el Response Schema
+            ni siquiera con el reintento de Few-Shot Examples.
     """
     inputs = _process_input(language, exercise, level, review_type, student_code)
     prompt = _build_prompt(inputs, previous_review=previous_review, motivo_regeneracion=motivo_regeneracion)
     data = _call_llm(prompt)
-    _validate_response(data)
+
+    try:
+        _validate_response(data)
+    except ResponseValidationError:
+        logger.warning(
+            "⚠️ Response no valido en el primer intento, reintentando con Few-Shot Examples"
+        )
+        few_shot_prompt = _build_prompt(
+            inputs, previous_review=previous_review, motivo_regeneracion=motivo_regeneracion,
+            include_few_shot=True,
+        )
+        data = _call_llm(few_shot_prompt)
+        _validate_response(data)
+
     return data

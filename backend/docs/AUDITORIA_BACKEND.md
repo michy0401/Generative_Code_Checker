@@ -265,3 +265,113 @@ Lo que sigue sin tocar, a propósito, por estar fuera del alcance de esta tarea:
 Few-Shot Examples, suite de pytest, cobertura de tests faltante (historial 3+ niveles, reintentos
 no-429, token expirado real), preparación de despliegue, y todo lo demás de "Importante"/"Nice to
 have".
+
+---
+
+## Addendum 2 — Few-Shot Examples + Prompt Versioning (2026-07-17)
+
+Resueltos los puntos 5 y 6 de la sección "Importante". Alcance estricto: solo estos dos (agrupados
+porque tocan el mismo componente, `SYSTEM_PROMPT`/Prompt Builder) — nada más de "Importante"/"Nice
+to have" se tocó. Los 21 casos previos siguen pasando sin cambios; se agregaron los casos 22 y 23.
+Verificado en vivo: **23/23 casos OK**.
+
+5. **Few-Shot Examples (sección 5.5 del PDF)** ✅ Resuelto — se decidió implementarlo (no solo
+   documentar la omisión). Diseño condicional, tal como pide el PDF ("se utilizarán únicamente
+   cuando sea necesario reforzar el formato esperado"): el primer intento de cualquier análisis
+   sigue sin incluir ejemplos, para no inflar el prompt en el caso normal (caso 22 confirma que el
+   primer intento NO contiene el bloque de ejemplos). Si el Response Validator rechaza esa primera
+   respuesta, `analizar_codigo()` hace **un único reintento adicional** con `FEW_SHOT_EXAMPLES`
+   (un ejemplo completo de entrada/salida) agregado al prompt — separado y con contador propio,
+   sin mezclarse con `MAX_ATTEMPTS` (los reintentos por fallas transitorias de red/parseo dentro de
+   `_call_llm`). El log distintivo (`⚠️ Response no valido en el primer intento, reintentando con
+   Few-Shot Examples`) se verificó en vivo capturando el logger, no solo por inspección visual
+   (caso 22). Si ese segundo intento también falla la validación, se sigue propagando
+   `ResponseValidationError` exactamente igual que antes (caso 23) — el mecanismo de refuerzo no
+   cambia el comportamiento de fallo real.
+   **Corrección sobre el enunciado de esta tarea:** el caso 23 pide confirmar que la falla devuelve
+   `502` — el código real (`routes/review.py`, sin cambios en esta tarea) mapea
+   `ResponseValidationError` a **`503`**, no `502` (`502` es solo para `LLMCommunicationError`,
+   fallos de comunicación con el proveedor). Los tests verifican la excepción real
+   (`ResponseValidationError`), que es lo que efectivamente produce el `503` documentado en Swagger
+   desde la tarea de CORS/OpenAPI — no se cambió ningún código de status para esta tarea.
+
+6. **Prompt Versioning (sección 7.5 del PDF)** ✅ Resuelto. Se agregó `PROMPT_VERSION` en
+   `services/llm_connector.py`, logueada en `INFO` en cada llamada real a Gemini (junto con el
+   modelo y el número de intento) — no como parte de la respuesta al usuario. Se creó
+   `docs/PROMPT_CHANGELOG.md` con el historial reconstruido a partir del código real, no del
+   ejemplo de estructura que traía el enunciado de la tarea: los guardrails de la sección 8 no
+   fueron un incremento separado (`v1.1` en el ejemplo sugerido) — ya estaban en el `SYSTEM_PROMPT`
+   desde el scaffold inicial del proyecto, porque esa tarea ya pedía implementar el pipeline "tal
+   como lo documenta el PDF". Por eso el historial real quedó en 3 versiones, no 4
+   (`v1.0` diseño inicial + guardrails, `v1.1` contexto de regeneración, `v1.2` few-shot
+   condicionales) y `PROMPT_VERSION` quedó en `"1.2"`, no en `"1.3"` como sugería el ejemplo del
+   enunciado. Se dejó un comentario explícito arriba de `PROMPT_VERSION`/`SYSTEM_PROMPT` en el
+   código recordando que cualquier cambio futuro al prompt debe venir con bump de versión + entrada
+   nueva en el changelog.
+
+**Archivos nuevos de esta tarea:** `docs/PROMPT_CHANGELOG.md`. **Archivos modificados:**
+`services/llm_connector.py` (Few-Shot Examples, `PROMPT_VERSION`, logging), `tests/test_api_manual.py`
+(casos 22-23), este documento.
+
+---
+
+## Addendum 3 — Suite de pytest + cobertura de casos faltantes (2026-07-17)
+
+Resueltos los puntos 7 y 8 de la sección "Importante". Alcance estricto: solo estos dos — no se
+tocó el punto 9 (Docker/despliegue), ni nada de "Nice to have". `tests/test_api_manual.py` **no se
+eliminó ni se reemplazó**: sigue existiendo como test de integración end-to-end, y sus 24 casos
+(los 23 previos + el nuevo de historial de 3+ niveles) se verificaron pasando contra el servidor y
+el Supabase reales. Se sumó una capa nueva, no se quitó nada.
+
+7. **Suite de `pytest` para lógica sin red** ✅ Resuelto. `tests/unit/` (config mínima en
+   `pytest.ini`: `testpaths = tests/unit` + `pythonpath = .`, para que `pytest` corrido desde
+   `backend/` encuentre los tests e importe `services.*`/`repositories.*`/`app` sin configuración
+   extra) con 7 archivos:
+   - `test_input_processor.py` — campos requeridos, campo faltante, `student_code` vacío (mismo
+     criterio ya decidido: se trata como campo faltante), `student_code` que excede
+     `MAX_STUDENT_CODE_CHARS`.
+   - `test_response_validator.py` — respuesta válida, campo requerido faltante, `enum` inválido
+     (`severity`), `score` fuera de rango.
+   - `test_review_ownership.py` — las 4 combinaciones pedidas (autenticado propio/ajeno, anónimo
+     coincide/no coincide), más 2 casos límite adicionales (JWT no aplica a revisión anónima y
+     viceversa) que ya se habían verificado a mano en tareas previas pero nunca con un assert real.
+   - `test_few_shot_trigger.py` — mockea `_call_llm` directamente (no `_get_client`) y confirma
+     tanto el caso de éxito en el segundo intento como el de fallo en ambos, inspeccionando los
+     argumentos reales con los que se llamó el mock para confirmar que el bloque de Few-Shot
+     Examples está en el segundo prompt y no en el primero.
+
+   Verificado en vivo con `pytest -v`: **26 passed, 1 skipped en 3.4s**, sin servidor levantado, sin
+   Supabase real, sin gastar cuota de Gemini (todo lo externo mockeado) y sin depender de que haya
+   variables de entorno reales configuradas — las que hay en `.env` se cargan igual (via
+   `load_dotenv()`) pero ningún test las necesita porque nunca se llega a usarlas.
+
+8. **Cobertura de los 4 casos identificados como faltantes** — 3 de 4 automatizados, 1 documentado
+   como limitación real:
+   - **Historial de 3+ niveles** ✅ — en `tests/test_api_manual.py` (caso 24, no en `tests/unit/`,
+     porque necesita filas reales con `created_at` real en Supabase): crea una revisión, la
+     regenera, regenera esa regeneración, y confirma que `/history` devuelve las 3 en el mismo
+     orden consultando desde cualquiera de los 3 ids. Nunca se había probado con más de 2 niveles.
+   - **Fallo de persistencia con LLM exitoso** ✅ — `tests/unit/test_persistence_failure.py`, con el
+     test client de Flask (`create_app()` en memoria) y mockeando `analizar_codigo` +
+     `review_repository.create_review`. Confirma `200` con el análisis completo y `review_id: null`,
+     y confirma con `caplog` (no por inspección visual) que el log del fallo de persistencia
+     efectivamente se emite.
+   - **Reintentos no-429** ✅ — `tests/unit/test_llm_retries.py`, mock de un error genérico (500) que
+     confirma exactamente `MAX_ATTEMPTS` llamadas antes de fallar con `LLMCommunicationError`. Antes
+     solo se había verificado a mano en la auditoría original, sin ningún assert automatizado.
+   - **Token realmente expirado** ⚠️ **Documentado como limitación conocida, no automatizado** —
+     `tests/unit/test_expired_token.py` (test con `@pytest.mark.skip` y motivo explícito, visible en
+     cualquier corrida de `pytest`). Causa real: el backend valida JWT contra el JWKS real de
+     Supabase (ES256); un token "expirado" fabricado en el test con una clave propia fallaría por
+     firma inválida antes de llegar a evaluarse el `exp` — eso ya lo cubre el caso 10 existente
+     ("JWT inválido"), no es el mismo camino. Probar el caso real exigiría un token real emitido por
+     Supabase y esperar a que expire (~1h), impráctico en un run automatizado. Se documentó la
+     limitación en vez de simular un escenario que no refleja el comportamiento real, tal como pedía
+     la tarea.
+
+**Archivos nuevos de esta tarea:** `pytest.ini`, `tests/unit/test_input_processor.py`,
+`tests/unit/test_response_validator.py`, `tests/unit/test_review_ownership.py`,
+`tests/unit/test_few_shot_trigger.py`, `tests/unit/test_llm_retries.py`,
+`tests/unit/test_persistence_failure.py`, `tests/unit/test_expired_token.py`.
+**Archivos modificados:** `requirements.txt` (`pytest`), `tests/test_api_manual.py` (caso 24),
+`README.md` (instrucciones de `pytest` vs. `test_api_manual.py`), este documento.

@@ -90,7 +90,23 @@ El backend nunca implementa signup/login - eso es responsabilidad del frontend c
 
 ## Correr los tests
 
+Hay dos capas de tests, con propositos distintos:
+
+- **`pytest` (`tests/unit/`)** — tests unitarios rapidos (corren en un par de segundos) de la
+  logica que no depende de red: Input Processor, Response Validator, ownership check, el
+  reintento con Few-Shot Examples, reintentos ante fallas transitorias, y fallo de persistencia
+  con LLM exitoso. Todo lo externo (Gemini, Supabase) esta mockeado - **no necesitan el servidor
+  levantado, ni Supabase real, ni gastar cuota de Gemini, ni ninguna variable de entorno real
+  configurada**. Es lo que conviene correr seguido mientras se desarrolla, o en CI.
+- **`tests/test_api_manual.py`** — test de integracion end-to-end: 24 casos contra el servidor y
+  el proyecto de Supabase **reales** (algunos gastan cuota real de Gemini). Sigue siendo la unica
+  forma de probar el flujo completo tal como lo veria un cliente real (JWT real via Supabase Auth,
+  persistencia real, rate limiting real, etc.). No lo reemplaza `pytest` ni viceversa.
+
 ```bash
+# Tests unitarios (rapidos, sin red, sin credenciales) - correr desde backend/
+pytest
+
 # No requiere internet ni API key
 python tests/test_mock_connection.py
 
@@ -100,7 +116,7 @@ python tests/test_llm_connection.py
 # Lista los modelos disponibles para la API key configurada
 python tests/check_models.py
 
-# Con el servidor corriendo (python app.py) en otra terminal: 21 casos end-to-end
+# Con el servidor corriendo (python app.py) en otra terminal: 24 casos end-to-end
 python tests/test_api_manual.py
 ```
 
@@ -110,13 +126,17 @@ python tests/test_api_manual.py
 backend/
 ├── app.py                        # Application factory de Flask (CORS + Swagger se configuran aca)
 ├── config.py                      # Configuracion por entorno (.env)
+├── extensions.py                  # Limiter de flask-limiter (compartido entre app.py y routes/)
 ├── logging_config.py              # Configuracion centralizada de logging
 ├── requirements.txt
+├── pytest.ini                     # Config minima para que "pytest" encuentre tests/unit/
 ├── migrations/
 │   ├── 001_init_supabase.sql      # Se corre a mano en el SQL Editor de Supabase
 │   └── 002_add_parent_review.sql # idem - agrega reviews.parent_review_id
 ├── docs/
-│   └── AUTH_PARA_FRONTEND.md      # Como el frontend debe mandar el JWT de Supabase Auth
+│   ├── AUTH_PARA_FRONTEND.md      # Como el frontend debe mandar el JWT de Supabase Auth
+│   ├── AUDITORIA_BACKEND.md       # Auditoria del backend + addendums de resolucion
+│   └── PROMPT_CHANGELOG.md        # Historial de versiones del SYSTEM_PROMPT
 ├── services/
 │   ├── llm_connector.py           # Modulo de IA
 │   ├── supabase_client.py         # Cliente unico de Supabase (perezoso)
@@ -132,6 +152,14 @@ backend/
 └── tests/
     ├── test_mock_connection.py
     ├── test_llm_connection.py
-    ├── test_api_manual.py
-    └── check_models.py
+    ├── test_api_manual.py         # Integracion end-to-end (servidor + Supabase reales)
+    ├── check_models.py
+    └── unit/                      # Tests unitarios de pytest (sin red, sin credenciales)
+        ├── test_input_processor.py
+        ├── test_response_validator.py
+        ├── test_review_ownership.py
+        ├── test_few_shot_trigger.py
+        ├── test_llm_retries.py
+        ├── test_persistence_failure.py
+        └── test_expired_token.py  # Documenta por que este caso no se automatiza
 ```
