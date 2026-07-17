@@ -35,7 +35,7 @@ def test_second_attempt_with_few_shot_succeeds():
     valid_data = _valid_data()
 
     with patch.object(llm_connector, "_call_llm", side_effect=[invalid_data, valid_data]) as mock_call:
-        result = llm_connector.analizar_codigo(**VALID_INPUT)
+        result, prompt_sent = llm_connector.analizar_codigo(**VALID_INPUT)
 
     assert result == valid_data
     assert mock_call.call_count == 2
@@ -44,6 +44,10 @@ def test_second_attempt_with_few_shot_succeeds():
     second_prompt = mock_call.call_args_list[1].args[0]
     assert "Ejemplo de referencia" not in first_prompt
     assert "Ejemplo de referencia" in second_prompt
+
+    # prompt_sent debe ser el del intento que efectivamente produjo la respuesta
+    # final (el segundo, con few-shot), no el primero.
+    assert prompt_sent == second_prompt
 
 
 def test_both_attempts_fail_raises_after_exactly_two_calls():

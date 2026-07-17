@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import time
+import unicodedata
 
 # pyrefly: ignore [missing-import]
 from dotenv import load_dotenv
@@ -45,6 +46,30 @@ REQUIRED_FIELDS = ["language", "exercise", "level", "review_type", "student_code
 # 20000 caracteres da margen generoso (varios cientos de lineas) sin dejar pasar
 # payloads desproporcionados que gastarian una llamada al LLM en vano.
 MAX_STUDENT_CODE_CHARS = int(os.getenv("MAX_STUDENT_CODE_CHARS", 20000))
+
+# Tipos de revision controlados (seccion 4.1 del documento del proyecto, RF-03).
+# Valores legibles para mostrar en mensajes de error; la comparacion real se hace
+# normalizada (sin tildes, minusculas) via _normalize_review_type(). Si esta lista
+# cambia, actualizar tambien el enum de "review_type" en los docstrings de Swagger
+# de routes/review.py (POST /api/review y /regenerate) - no se generan del mismo lugar.
+ALLOWED_REVIEW_TYPES = [
+    "Errores",
+    "Buenas practicas",
+    "Legibilidad",
+    "Estructura",
+    "Seguridad basica",
+    "Rendimiento",
+    "Pruebas sugeridas",
+]
+
+
+def _normalize_review_type(value):
+    """Normaliza un review_type para comparar: sin tildes, minusculas, sin espacios de mas."""
+    text = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    return " ".join(text.lower().split())
+
+
+_ALLOWED_REVIEW_TYPES_NORMALIZED = {_normalize_review_type(value) for value in ALLOWED_REVIEW_TYPES}
 
 _SCHEMA_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "schemas", "response_schema.json")
 
@@ -196,6 +221,12 @@ def _process_input(language, exercise, level, review_type, student_code):
         )
 
     cleaned = {name: str(value).strip() for name, value in raw_fields.items()}
+
+    if _normalize_review_type(cleaned["review_type"]) not in _ALLOWED_REVIEW_TYPES_NORMALIZED:
+        raise InputValidationError(
+            f"review_type invalido: '{cleaned['review_type']}'. "
+            f"Valores permitidos: {', '.join(ALLOWED_REVIEW_TYPES)}."
+        )
 
     code_length = len(cleaned["student_code"])
     if code_length > MAX_STUDENT_CODE_CHARS:
@@ -369,8 +400,15 @@ def analizar_codigo(
     """
     Punto de entrada publico del modulo de IA.
 
-    Devuelve un diccionario que cumple exactamente `schemas/response_schema.json`
-    (summary, findings, explanation, suggested_code, tests, warnings).
+    Devuelve una tupla `(data, prompt_sent)`:
+    - `data`: diccionario que cumple exactamente `schemas/response_schema.json`
+      (summary, findings, explanation, suggested_code, tests, warnings).
+    - `prompt_sent`: el prompt final completo (System Prompt + variables + guardrails +
+      Few-Shot Examples si aplico) que efectivamente produjo `data` - el del segundo
+      intento si el primero fallo la validacion y el few-shot lo corrigio, o el del
+      primero si no hizo falta reintentar. Pensado para persistir en
+      `reviews.prompt_sent` (trazabilidad, RF-09/RNF-05) - no forma parte del
+      Response Schema ni se agrega a la respuesta HTTP.
 
     `previous_review` (dict, la respuesta completa de una revision anterior) y
     `motivo_regeneracion` (texto libre) son opcionales - se usan solo cuando
@@ -385,7 +423,8 @@ def analizar_codigo(
     ResponseValidationError igual que si no existiera este mecanismo.
 
     Lanza:
-        InputValidationError: si faltan campos requeridos.
+        InputValidationError: si faltan campos requeridos, review_type no esta en
+            ALLOWED_REVIEW_TYPES, o student_code excede MAX_STUDENT_CODE_CHARS.
         QuotaExceededError: si la cuota del proveedor fue excedida.
         LLMCommunicationError: si falla la comunicacion o el parseo del modelo.
         ResponseValidationError: si la respuesta no cumple el Response Schema
@@ -407,5 +446,6 @@ def analizar_codigo(
         )
         data = _call_llm(few_shot_prompt)
         _validate_response(data)
+        return data, few_shot_prompt
 
-    return data
+    return data, prompt

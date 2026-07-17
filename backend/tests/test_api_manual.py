@@ -5,7 +5,7 @@ Uso:
     1. En una terminal: python app.py
     2. En otra terminal: python tests/test_api_manual.py
 
-No es un test de pytest: es un vistazo rapido de 24 casos mientras se
+No es un test de pytest: es un vistazo rapido de 30 casos mientras se
 desarrolla, pensado para correrse a mano contra el servidor local. Para tests
 unitarios rapidos, sin servidor ni credenciales reales, ver tests/unit/ (correr
 con "pytest" desde la raiz de backend/).
@@ -42,7 +42,7 @@ BASE_URL = "http://127.0.0.1:5000"
 REVIEW_URL = f"{BASE_URL}/api/review"
 SCHEMA_KEYS = {"summary", "findings", "explanation", "suggested_code", "tests", "warnings"}
 
-TOTAL_CASES = 24
+TOTAL_CASES = 30
 results = []  # (index, label, ok, detail)
 
 
@@ -66,6 +66,21 @@ def post_json(url, payload, headers=None):
 def get(url, headers=None):
     """GET crudo via urllib. Devuelve (status_code, texto_de_respuesta)."""
     request = urllib.request.Request(url, headers=headers or {}, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return response.status, response.read().decode("utf-8")
+    except urllib.error.HTTPError as error:
+        return error.code, error.read().decode("utf-8")
+
+
+def patch_json(url, payload, headers=None):
+    """PATCH crudo via urllib. Devuelve (status_code, texto_de_respuesta)."""
+    request_headers = {"Content-Type": "application/json"}
+    if headers:
+        request_headers.update(headers)
+    request = urllib.request.Request(
+        url, data=json.dumps(payload).encode("utf-8"), headers=request_headers, method="PATCH"
+    )
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             return response.status, response.read().decode("utf-8")
@@ -846,7 +861,7 @@ def case_22_few_shot_retry_succeeds():
     try:
         with patch.object(llm_connector, "_get_client", return_value=fake_client):
             try:
-                result = llm_connector.analizar_codigo(
+                result, prompt_sent = llm_connector.analizar_codigo(
                     language="Python",
                     exercise="Test few-shot (caso 22)",
                     level="Basico",
@@ -892,6 +907,14 @@ def case_22_few_shot_retry_succeeds():
         report(
             22, "Few-shot corrige el formato (2do intento)", False,
             "el segundo intento no incluyo el bloque de Few-Shot Examples en el prompt",
+        )
+        return
+
+    if "Ejemplo de referencia" not in prompt_sent:
+        report(
+            22, "Few-shot corrige el formato (2do intento)", False,
+            "analizar_codigo() devolvio como prompt_sent el del primer intento (sin few-shot), "
+            "no el del segundo intento (el que efectivamente produjo la respuesta valida)",
         )
         return
 
@@ -1044,6 +1067,260 @@ def case_24_history_three_levels():
     report(24, "Historial de 3+ niveles", True, "3 niveles, mismo orden consultando desde cualquiera de los 3 ids")
 
 
+# --- Caso 25: PATCH status "accepted" sobre una revision propia (anonima) --------
+
+def case_25_patch_status_accepted():
+    payload = {
+        "language": "Python",
+        "exercise": "Test PATCH status accepted",
+        "level": "Basico",
+        "review_type": "Buenas practicas",
+        "student_code": "def suma(a, b): return a + b",
+    }
+    status, body = post_json(REVIEW_URL, payload)
+    if status != 200:
+        report(25, "PATCH status accepted (propia)", False, f"POST /api/review esperado 200, recibido {status}: {body[:200]}")
+        return None
+
+    data = json.loads(body)
+    review_id = data.get("review_id")
+    session_id = data.get("session_id")
+    if not review_id or not session_id:
+        report(25, "PATCH status accepted (propia)", False, "no se obtuvo review_id/session_id (¿fallo la persistencia?)")
+        return None
+
+    patch_status, patch_body = patch_json(
+        f"{BASE_URL}/api/reviews/{review_id}", {"status": "accepted", "session_id": session_id}
+    )
+    if patch_status != 200:
+        report(25, "PATCH status accepted (propia)", False, f"PATCH esperado 200, recibido {patch_status}: {patch_body[:200]}")
+        return None
+
+    patched = json.loads(patch_body)
+    if patched.get("status") != "accepted":
+        report(
+            25, "PATCH status accepted (propia)", False,
+            f"la respuesta del PATCH no refleja status='accepted': {patched.get('status')}",
+        )
+        return None
+
+    get_status, get_body = get(f"{BASE_URL}/api/reviews/{review_id}?session_id={urllib.parse.quote(session_id)}")
+    if get_status != 200:
+        report(25, "PATCH status accepted (propia)", False, f"GET posterior esperado 200, recibido {get_status}: {get_body[:200]}")
+        return None
+
+    refetched = json.loads(get_body)
+    if refetched.get("status") != "accepted":
+        report(25, "PATCH status accepted (propia)", False, f"status no quedo guardado: {refetched.get('status')}")
+        return None
+
+    report(25, "PATCH status accepted (propia)", True, "200, status='accepted' persistido")
+    return {"review_id": review_id, "session_id": session_id}
+
+
+# --- Caso 26: PATCH solo student_comment no pisa el status anterior --------------
+
+def case_26_patch_comment_keeps_status(case_25_data):
+    if case_25_data is None:
+        report(26, "PATCH solo student_comment", False, "se salteo: el caso 25 no devolvio datos")
+        return
+
+    review_id = case_25_data["review_id"]
+    session_id = case_25_data["session_id"]
+    comment = "Buena explicacion, pero ya lo habia corregido asi."
+
+    patch_status, patch_body = patch_json(
+        f"{BASE_URL}/api/reviews/{review_id}",
+        {"student_comment": comment, "session_id": session_id},
+    )
+    if patch_status != 200:
+        report(26, "PATCH solo student_comment", False, f"esperado 200, recibido {patch_status}: {patch_body[:200]}")
+        return
+
+    patched = json.loads(patch_body)
+    if patched.get("student_comment") != comment:
+        report(26, "PATCH solo student_comment", False, f"student_comment no coincide: {patched.get('student_comment')}")
+        return
+
+    if patched.get("status") != "accepted":
+        report(
+            26, "PATCH solo student_comment", False,
+            f"el status se piso sin querer (deberia seguir 'accepted' del caso 25): {patched.get('status')}",
+        )
+        return
+
+    report(26, "PATCH solo student_comment", True, "200, comentario guardado y status previo intacto")
+
+
+# --- Caso 27: PATCH sobre una revision ajena -------------------------------------
+# Mismo criterio de ownership que el caso 17 (GET), reutilizando los helpers de
+# usuario de prueba de los casos 12/16/17.
+
+def case_27_patch_foreign_review_forbidden():
+    admin_client, auth_client = _get_supabase_admin_clients()
+    if admin_client is None:
+        report(27, "PATCH revision ajena", False, "faltan SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY en .env")
+        return
+
+    user_id = None
+    try:
+        try:
+            user_id, token = _create_and_sign_in_test_user(admin_client, auth_client)
+        except Exception as error:
+            report(27, "PATCH revision ajena", False, f"no se pudo crear/loguear el usuario de prueba: {error}")
+            return
+
+        payload = {
+            "language": "Python",
+            "exercise": "Test PATCH revision ajena",
+            "level": "Basico",
+            "review_type": "Buenas practicas",
+            "student_code": "def suma(a, b): return a + b",
+        }
+        status, body = post_json(REVIEW_URL, payload, headers={"Authorization": f"Bearer {token}"})
+        if status != 200:
+            report(27, "PATCH revision ajena", False, f"POST /api/review (dueno) esperado 200, recibido {status}: {body[:200]}")
+            return
+
+        owner_review_id = json.loads(body).get("review_id")
+        if not owner_review_id:
+            report(27, "PATCH revision ajena", False, "no se obtuvo review_id del dueno (¿fallo la persistencia?)")
+            return
+
+        patch_status, patch_body = patch_json(f"{BASE_URL}/api/reviews/{owner_review_id}", {"status": "discarded"})
+        if patch_status != 403:
+            report(27, "PATCH revision ajena", False, f"esperado 403, recibido {patch_status}: {patch_body[:200]}")
+            return
+
+        report(27, "PATCH revision ajena", True, "403 sin autenticacion ni session_id")
+    finally:
+        if user_id:
+            _cleanup_test_user(admin_client, user_id, 27)
+
+
+# --- Caso 28: review_type fuera de la lista controlada -> 400 -------------------
+
+def case_28_invalid_review_type():
+    payload = {
+        "language": "Python",
+        "exercise": "Test review_type invalido",
+        "level": "Basico",
+        "review_type": "cositas raras",
+        "student_code": "def suma(a, b): return a + b",
+    }
+    status, body = post_json(REVIEW_URL, payload)
+    if status != 400:
+        report(28, "review_type invalido", False, f"esperado 400, recibido {status}: {body[:200]}")
+        return
+
+    data = json.loads(body)
+    error_message = data.get("error", "")
+    if "cositas raras" not in error_message:
+        report(28, "review_type invalido", False, f"el mensaje no menciona el valor invalido recibido: {error_message}")
+        return
+
+    missing_allowed_values = [value for value in llm_connector.ALLOWED_REVIEW_TYPES if value not in error_message]
+    if missing_allowed_values:
+        report(
+            28, "review_type invalido", False,
+            f"el mensaje no incluye todos los valores permitidos, faltan: {missing_allowed_values}",
+        )
+        return
+
+    report(28, "review_type invalido", True, "400, mensaje incluye los valores permitidos")
+
+
+# --- Caso 29: GET /api/dashboard/metrics tiene la forma esperada -----------------
+
+def case_29_dashboard_metrics_shape():
+    status, body = get(f"{BASE_URL}/api/dashboard/metrics")
+    if status != 200:
+        report(29, "GET /api/dashboard/metrics", False, f"esperado 200, recibido {status}: {body[:200]}")
+        return
+
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError as error:
+        report(29, "GET /api/dashboard/metrics", False, f"la respuesta no es JSON valido: {error}")
+        return
+
+    expected_keys = {
+        "total_reviews", "reviews_by_language", "reviews_by_status",
+        "regenerated_count", "most_frequent_findings",
+    }
+    missing_keys = expected_keys - data.keys()
+    if missing_keys:
+        report(29, "GET /api/dashboard/metrics", False, f"faltan claves: {missing_keys}")
+        return
+
+    # No se compara contra un conteo exacto de "revisiones creadas por esta corrida":
+    # varios casos (12, 16, 17, 27) borran su propia revision de prueba al limpiar el
+    # usuario de Supabase Auth que crearon (ver _cleanup_test_user), asi que un
+    # conteo exacto de "lo que deberia quedar" no reflejaria la tabla real. Se valida
+    # coherencia (tipos correctos, no negativos) y un piso conservador basado en las
+    # revisiones que sabemos que NO se borran (la del caso feliz y la del caso 25).
+    if not isinstance(data["total_reviews"], int) or data["total_reviews"] < 0:
+        report(29, "GET /api/dashboard/metrics", False, f"total_reviews invalido: {data['total_reviews']}")
+        return
+
+    if not isinstance(data["reviews_by_language"], dict):
+        report(29, "GET /api/dashboard/metrics", False, f"reviews_by_language deberia ser un objeto: {data['reviews_by_language']}")
+        return
+
+    if not isinstance(data["reviews_by_status"], dict):
+        report(29, "GET /api/dashboard/metrics", False, f"reviews_by_status deberia ser un objeto: {data['reviews_by_status']}")
+        return
+
+    if not isinstance(data["regenerated_count"], int) or data["regenerated_count"] < 0:
+        report(29, "GET /api/dashboard/metrics", False, f"regenerated_count invalido: {data['regenerated_count']}")
+        return
+
+    if not isinstance(data["most_frequent_findings"], list):
+        report(29, "GET /api/dashboard/metrics", False, f"most_frequent_findings deberia ser una lista: {data['most_frequent_findings']}")
+        return
+
+    for item in data["most_frequent_findings"]:
+        if not (isinstance(item, dict) and isinstance(item.get("title"), str) and isinstance(item.get("count"), int)):
+            report(29, "GET /api/dashboard/metrics", False, f"item invalido en most_frequent_findings: {item}")
+            return
+
+    if data["total_reviews"] < 1:
+        report(
+            29, "GET /api/dashboard/metrics", False,
+            "total_reviews deberia ser al menos 1 (esta misma corrida ya creo revisiones que no se borran)",
+        )
+        return
+
+    report(29, "GET /api/dashboard/metrics", True, f"200, total_reviews={data['total_reviews']}")
+
+
+# --- Caso 30: el dashboard refleja el status "accepted" del caso 25 --------------
+
+def case_30_dashboard_reflects_accepted_status():
+    status, body = get(f"{BASE_URL}/api/dashboard/metrics")
+    if status != 200:
+        report(30, "Dashboard refleja status accepted", False, f"esperado 200, recibido {status}: {body[:200]}")
+        return
+
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError as error:
+        report(30, "Dashboard refleja status accepted", False, f"la respuesta no es JSON valido: {error}")
+        return
+
+    reviews_by_status = data.get("reviews_by_status", {})
+    accepted_count = reviews_by_status.get("accepted", 0)
+    if not isinstance(accepted_count, int) or accepted_count <= 0:
+        report(
+            30, "Dashboard refleja status accepted", False,
+            f"se esperaba reviews_by_status['accepted'] > 0 (el caso 25 ya acepto una revision), "
+            f"se obtuvo: {reviews_by_status}",
+        )
+        return
+
+    report(30, "Dashboard refleja status accepted", True, f"accepted={accepted_count}")
+
+
 def main():
     print(f"Verificando servidor en {BASE_URL} ...")
     if not check_server_is_up():
@@ -1071,11 +1348,18 @@ def main():
     case_18_unhandled_exception_returns_json()
     case_19_body_too_large()
     case_20_student_code_char_limit()
-    # case_24 (aunque su numero es mas alto) corre ANTES que case_21 a proposito:
-    # case_21 agota el rate limit de /api/review para el resto de la ventana de 1
-    # minuto, y case_24 todavia necesita hacer llamadas reales a /api/review y a
-    # /regenerate. case_21 sigue siendo el ultimo caso que golpea el servidor real.
+    # case_24, case_25/26/27/28 (aunque sus numeros son mas altos) corren ANTES que
+    # case_21 a proposito: case_21 agota el rate limit de /api/review para el resto
+    # de la ventana de 1 minuto, y todos estos todavia necesitan hacer llamadas
+    # reales a /api/review. case_21 sigue siendo el ultimo caso que golpea el
+    # servidor real.
     case_24_history_three_levels()
+    case_25_data = case_25_patch_status_accepted()
+    case_26_patch_comment_keeps_status(case_25_data)
+    case_27_patch_foreign_review_forbidden()
+    case_28_invalid_review_type()
+    case_29_dashboard_metrics_shape()
+    case_30_dashboard_reflects_accepted_status()
     case_21_rate_limit_backend()
     case_22_few_shot_retry_succeeds()
     case_23_few_shot_retry_also_fails()

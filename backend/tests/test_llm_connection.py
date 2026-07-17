@@ -20,7 +20,7 @@ from services.llm_connector import (
 def ejecutar_prueba():
     print("--- Probando conexion con Gemini (gemini-2.0-flash-lite) ---")
     try:
-        resultado = analizar_codigo(
+        resultado, prompt_sent = analizar_codigo(
             language="Python",
             exercise="Crear una funcion que sume dos numeros.",
             level="Basico",

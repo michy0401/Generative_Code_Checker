@@ -14,6 +14,7 @@ from werkzeug.exceptions import HTTPException
 from config import get_config
 from extensions import limiter
 from logging_config import configure_logging
+from routes.dashboard import dashboard_bp
 from routes.review import review_bp
 
 logger = logging.getLogger(__name__)
@@ -151,7 +152,59 @@ SWAGGER_TEMPLATE = {
                 "review_type": {"type": "string"},
                 "student_code": {"type": "string"},
                 "response": {"$ref": "#/definitions/ReviewResponse"},
+                "status": {
+                    "type": "string",
+                    "enum": ["pending", "accepted", "discarded"],
+                    "description": "Revision humana (RF-08). 'pending' por defecto en toda revision nueva.",
+                },
+                "student_comment": {
+                    "type": "string",
+                    "description": "Comentario libre del estudiante. null si no se comento (ver PATCH /api/reviews/{review_id}).",
+                },
+                "prompt_sent": {
+                    "type": "string",
+                    "description": (
+                        "El prompt final completo que efectivamente se mando al LLM para generar "
+                        "esta revision (trazabilidad, RF-09/RNF-05). Campo interno de persistencia, "
+                        "no forma parte del Response Schema validado."
+                    ),
+                },
                 "created_at": {"type": "string", "format": "date-time"},
+            },
+        },
+        "DashboardMetrics": {
+            "type": "object",
+            "description": "Metricas agregadas del sistema (RF-10). Ver GET /api/dashboard/metrics.",
+            "properties": {
+                "total_reviews": {
+                    "type": "integer",
+                    "description": "Cantidad total de filas en reviews (incluye regeneraciones).",
+                },
+                "reviews_by_language": {
+                    "type": "object",
+                    "description": "Conteo de revisiones agrupado por 'language'. Claves dinamicas segun los lenguajes usados.",
+                    "additionalProperties": {"type": "integer"},
+                },
+                "reviews_by_status": {
+                    "type": "object",
+                    "description": "Conteo de revisiones agrupado por 'status' (pending/accepted/discarded).",
+                    "additionalProperties": {"type": "integer"},
+                },
+                "regenerated_count": {
+                    "type": "integer",
+                    "description": "Cantidad de revisiones con parent_review_id no nulo.",
+                },
+                "most_frequent_findings": {
+                    "type": "array",
+                    "description": "Top 10 titulos de findings mas frecuentes en todas las revisiones.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string"},
+                            "count": {"type": "integer"},
+                        },
+                    },
+                },
             },
         },
     },
@@ -177,6 +230,7 @@ def create_app():
     Swagger(app, config=SWAGGER_CONFIG, template=SWAGGER_TEMPLATE)
 
     app.register_blueprint(review_bp)
+    app.register_blueprint(dashboard_bp)
 
     @app.route("/health", methods=["GET"])
     def health():

@@ -34,6 +34,10 @@ Supabase antes de usar la persistencia. El backend no ejecuta migraciones por si
   `auth.users -> public.students`, y los indices.
 - `002_add_parent_review.sql`: agrega `reviews.parent_review_id` (relacion entre una revision y
   la revision anterior que la origino, usada por `POST /api/reviews/<id>/regenerate`).
+- `003_add_status_comment_prompt.sql`: agrega `reviews.status` (`pending`/`accepted`/`discarded`,
+  revision humana - RF-08, `PATCH /api/reviews/<id>`), `reviews.student_comment` (comentario libre
+  opcional), y `reviews.prompt_sent` (el prompt final que efectivamente se mando al LLM - RF-09,
+  trazabilidad).
 
 ## Variables de entorno
 
@@ -69,11 +73,27 @@ flask --app app run
 ## Documentacion interactiva de la API (Swagger)
 
 Con el servidor corriendo, **`GET /api/docs`** tiene la referencia completa y actualizada de
-los 7 endpoints (`/health`, `/api/review`, `/api/reviews/<id>`, `/api/reviews`, `/api/reviews/mine`,
-`/api/reviews/<id>/regenerate`, `/api/reviews/<id>/history`): metodo, parametros, si requiere
-autenticacion (y de que tipo), estructura de respuesta y todos los codigos de status posibles.
-Se puede probar cada endpoint directamente desde el navegador, incluyendo pegar un JWT en el
-boton "Authorize" para los que lo requieren o aceptan.
+los 9 endpoints (`/health`, `/api/review`, `/api/reviews/<id>` [GET y PATCH], `/api/reviews`,
+`/api/reviews/mine`, `/api/reviews/<id>/regenerate`, `/api/reviews/<id>/history`,
+`/api/dashboard/metrics`): metodo, parametros, si requiere autenticacion (y de que tipo),
+estructura de respuesta y todos los codigos de status posibles. Se puede probar cada endpoint
+directamente desde el navegador, incluyendo pegar un JWT en el boton "Authorize" para los que lo
+requieren o aceptan.
+
+`review_type` (en `POST /api/review` y opcionalmente en `/regenerate`) solo acepta una lista
+controlada de valores (RF-03): Errores, Buenas practicas, Legibilidad, Estructura, Seguridad
+basica, Rendimiento, Pruebas sugeridas (no distingue mayusculas/tildes). Un valor fuera de esa
+lista responde `400` con los valores permitidos en el mensaje.
+
+`PATCH /api/reviews/<id>` permite revision humana (RF-08): aceptar/descartar (`status`) y/o dejar
+un comentario libre (`student_comment`) sobre una revision propia, con el mismo ownership check
+que el resto de los endpoints de revision puntual.
+
+`GET /api/dashboard/metrics` (RF-10) devuelve metricas agregadas de TODO el sistema (no de un
+estudiante particular) para que el frontend arme el tablero: total de revisiones, conteo por
+lenguaje, conteo por status, cantidad de regeneraciones, y el top 10 de findings mas frecuentes.
+Publico, no requiere autenticacion. Este backend solo expone los datos - la visualizacion es
+responsabilidad del frontend.
 
 El JSON crudo de la spec (OpenAPI/Swagger 2.0) esta en `GET /api/openapi.json`, para importar en
 Postman o generadores de clientes.
@@ -94,11 +114,12 @@ Hay dos capas de tests, con propositos distintos:
 
 - **`pytest` (`tests/unit/`)** — tests unitarios rapidos (corren en un par de segundos) de la
   logica que no depende de red: Input Processor, Response Validator, ownership check, el
-  reintento con Few-Shot Examples, reintentos ante fallas transitorias, y fallo de persistencia
-  con LLM exitoso. Todo lo externo (Gemini, Supabase) esta mockeado - **no necesitan el servidor
+  reintento con Few-Shot Examples, reintentos ante fallas transitorias, fallo de persistencia
+  con LLM exitoso, y la agregacion de metricas del dashboard. Todo lo externo (Gemini, Supabase)
+  esta mockeado - **no necesitan el servidor
   levantado, ni Supabase real, ni gastar cuota de Gemini, ni ninguna variable de entorno real
   configurada**. Es lo que conviene correr seguido mientras se desarrolla, o en CI.
-- **`tests/test_api_manual.py`** — test de integracion end-to-end: 24 casos contra el servidor y
+- **`tests/test_api_manual.py`** — test de integracion end-to-end: 30 casos contra el servidor y
   el proyecto de Supabase **reales** (algunos gastan cuota real de Gemini). Sigue siendo la unica
   forma de probar el flujo completo tal como lo veria un cliente real (JWT real via Supabase Auth,
   persistencia real, rate limiting real, etc.). No lo reemplaza `pytest` ni viceversa.
@@ -116,7 +137,7 @@ python tests/test_llm_connection.py
 # Lista los modelos disponibles para la API key configurada
 python tests/check_models.py
 
-# Con el servidor corriendo (python app.py) en otra terminal: 24 casos end-to-end
+# Con el servidor corriendo (python app.py) en otra terminal: 30 casos end-to-end
 python tests/test_api_manual.py
 ```
 
@@ -132,7 +153,8 @@ backend/
 ├── pytest.ini                     # Config minima para que "pytest" encuentre tests/unit/
 ├── migrations/
 │   ├── 001_init_supabase.sql      # Se corre a mano en el SQL Editor de Supabase
-│   └── 002_add_parent_review.sql # idem - agrega reviews.parent_review_id
+│   ├── 002_add_parent_review.sql # idem - agrega reviews.parent_review_id
+│   └── 003_add_status_comment_prompt.sql # idem - status/student_comment/prompt_sent
 ├── docs/
 │   ├── AUTH_PARA_FRONTEND.md      # Como el frontend debe mandar el JWT de Supabase Auth
 │   ├── AUDITORIA_BACKEND.md       # Auditoria del backend + addendums de resolucion
@@ -148,7 +170,8 @@ backend/
 ├── schemas/
 │   └── response_schema.json       # Response Schema v1.0
 ├── routes/
-│   └── review.py                  # Blueprint de /api/review y /api/reviews
+│   ├── review.py                  # Blueprint de /api/review y /api/reviews
+│   └── dashboard.py                # Blueprint de /api/dashboard/metrics (RF-10)
 └── tests/
     ├── test_mock_connection.py
     ├── test_llm_connection.py
@@ -161,5 +184,6 @@ backend/
         ├── test_few_shot_trigger.py
         ├── test_llm_retries.py
         ├── test_persistence_failure.py
+        ├── test_dashboard_metrics.py
         └── test_expired_token.py  # Documenta por que este caso no se automatiza
 ```

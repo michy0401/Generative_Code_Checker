@@ -45,7 +45,8 @@ def test_persistence_failure_still_returns_200_with_analysis(caplog):
     }
     valid_data = _valid_data()
 
-    with patch("routes.review.analizar_codigo", return_value=valid_data):
+    # analizar_codigo() devuelve (data, prompt_sent) - el mock debe reflejar esa tupla.
+    with patch("routes.review.analizar_codigo", return_value=(valid_data, "prompt de prueba")):
         with patch.object(
             review_repository, "create_review",
             side_effect=review_repository.RepositoryError("Supabase caido (simulado)"),

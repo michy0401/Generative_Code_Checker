@@ -19,6 +19,9 @@ from services.llm_connector import (
 OWNERSHIP_ERROR = "No tenes permiso para regenerar esta revision"
 HISTORY_OWNERSHIP_ERROR = "No tenes permiso para acceder a esta revision"
 GET_REVIEW_OWNERSHIP_ERROR = "No tenes permiso para acceder a esta revision"
+PATCH_OWNERSHIP_ERROR = "No tenes permiso para modificar esta revision"
+
+VALID_REVIEW_STATUSES = {"pending", "accepted", "discarded"}
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +72,16 @@ def review_code():
             review_type:
               type: string
               example: "Buenas practicas"
+              description: >
+                Debe ser uno de los valores permitidos (no distingue mayusculas/tildes).
+              enum:
+                - Errores
+                - Buenas practicas
+                - Legibilidad
+                - Estructura
+                - Seguridad basica
+                - Rendimiento
+                - Pruebas sugeridas
             student_code:
               type: string
               example: "def suma(a, b): return a + b"
@@ -85,8 +98,8 @@ def review_code():
           $ref: '#/definitions/ReviewResponse'
       400:
         description: >
-          Faltan campos requeridos, el body no es JSON valido, o student_code excede
-          MAX_STUDENT_CODE_CHARS.
+          Faltan campos requeridos, el body no es JSON valido, review_type no esta en la
+          lista permitida, o student_code excede MAX_STUDENT_CODE_CHARS.
       401:
         description: Se mando un Authorization Bearer, pero el token es invalido o expiro.
       413:
@@ -108,7 +121,7 @@ def review_code():
     student_id = g.student_id
 
     try:
-        resultado = analizar_codigo(
+        resultado, prompt_sent = analizar_codigo(
             language=payload.get("language"),
             exercise=payload.get("exercise"),
             level=payload.get("level"),
@@ -135,6 +148,7 @@ def review_code():
             response=resultado,
             student_id=student_id,
             session_id=session_id,
+            prompt_sent=prompt_sent,
         )
         review_id = row["id"]
     except review_repository.RepositoryError as error:
@@ -246,6 +260,101 @@ def get_review(review_id):
     return jsonify(row), 200
 
 
+@review_bp.route("/api/reviews/<review_id>", methods=["PATCH"])
+@optional_auth
+def update_review_route(review_id):
+    """
+    Revision humana: aceptar, descartar y/o comentar una revision (RF-08).
+    ---
+    tags:
+      - Revisiones
+    summary: Revision humana - aceptar, descartar y/o comentar una revision existente.
+    description: >
+      Actualiza status y/o student_comment de una revision ya persistida. Mismo ownership
+      check que GET /api/reviews/{review_id} (reutiliza is_owner()): si la revision
+      pertenece a un estudiante autenticado, se exige un JWT valido de ese mismo
+      estudiante; si es anonima, se exige el session_id exacto en el body. Solo se
+      actualizan los campos que vienen en el body (no se pisa el otro si no se manda).
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: review_id
+        type: string
+        required: true
+        description: UUID de la revision.
+      - in: header
+        name: Authorization
+        type: string
+        required: false
+        description: Requerido solo si la revision pertenece a un estudiante autenticado.
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              enum: [pending, accepted, discarded]
+              description: Opcional (pero se requiere al menos uno entre status y student_comment).
+            student_comment:
+              type: string
+              description: >
+                Opcional (texto libre). Se requiere al menos uno entre status y student_comment.
+            session_id:
+              type: string
+              description: Requerido si la revision es anonima - debe coincidir exactamente.
+    responses:
+      200:
+        description: La revision actualizada, completa.
+        schema:
+          $ref: '#/definitions/ReviewRow'
+      400:
+        description: >
+          El body no trae ni status ni student_comment, o status no es uno de los valores
+          permitidos.
+      403:
+        description: >
+          Quien pide no es el dueno de la revision (session_id o student_id no coinciden).
+          Mensaje generico, no revela si el review_id existe ni de quien es.
+      404:
+        description: No existe una revision con ese review_id.
+      502:
+        description: No se pudo consultar o actualizar Supabase.
+    """
+    try:
+        original = review_repository.get_review_by_id(review_id)
+    except review_repository.RepositoryError as error:
+        return jsonify({"error": "No se pudo consultar Supabase.", "detalle": str(error)}), 502
+
+    if original is None:
+        return jsonify({"error": "Revision no encontrada."}), 404
+
+    payload = request.get_json(silent=True) or {}
+
+    if not review_ownership.is_owner(original, student_id=g.student_id, session_id=payload.get("session_id")):
+        return jsonify({"error": PATCH_OWNERSHIP_ERROR}), 403
+
+    status = payload.get("status")
+    student_comment = payload.get("student_comment")
+
+    if status is None and student_comment is None:
+        return jsonify({"error": "Debes enviar al menos uno de: status, student_comment."}), 400
+
+    if status is not None and status not in VALID_REVIEW_STATUSES:
+        return jsonify({
+            "error": f"status invalido: '{status}'. Valores permitidos: {', '.join(sorted(VALID_REVIEW_STATUSES))}.",
+        }), 400
+
+    try:
+        updated_row = review_repository.update_review(review_id, status=status, student_comment=student_comment)
+    except review_repository.RepositoryError as error:
+        return jsonify({"error": "No se pudo actualizar la revision en Supabase.", "detalle": str(error)}), 502
+
+    return jsonify(updated_row), 200
+
+
 @review_bp.route("/api/reviews", methods=["GET"])
 def list_reviews():
     """
@@ -327,6 +436,20 @@ def regenerate_review(review_id):
             student_code:
               type: string
               description: Opcional. Si no se manda, se reusa el student_code de la revision original.
+            review_type:
+              type: string
+              description: >
+                Opcional. Si no se manda, se reusa el review_type de la revision original (ya
+                validado la primera vez, no se re-valida). Si se manda uno nuevo, debe ser uno de
+                los valores permitidos (mismo enum que POST /api/review).
+              enum:
+                - Errores
+                - Buenas practicas
+                - Legibilidad
+                - Estructura
+                - Seguridad basica
+                - Rendimiento
+                - Pruebas sugeridas
             motivo_regeneracion:
               type: string
               description: Opcional, texto libre explicando por que se pide la nueva revision.
@@ -335,6 +458,8 @@ def regenerate_review(review_id):
         description: Nueva revision generada y persistida.
         schema:
           $ref: '#/definitions/ReviewResponse'
+      400:
+        description: Se mando un review_type nuevo y no esta en la lista permitida.
       403:
         description: >
           Quien pide no es el dueno de la revision (session_id o student_id no coinciden).
@@ -364,14 +489,15 @@ def regenerate_review(review_id):
         return jsonify({"error": OWNERSHIP_ERROR}), 403
 
     student_code = payload.get("student_code") or original.get("student_code")
+    review_type = payload.get("review_type") or original.get("review_type")
     motivo_regeneracion = payload.get("motivo_regeneracion")
 
     try:
-        resultado = analizar_codigo(
+        resultado, prompt_sent = analizar_codigo(
             language=original.get("language"),
             exercise=original.get("exercise"),
             level=original.get("level"),
-            review_type=original.get("review_type"),
+            review_type=review_type,
             student_code=student_code,
             previous_review=original.get("response"),
             motivo_regeneracion=motivo_regeneracion,
@@ -391,12 +517,13 @@ def regenerate_review(review_id):
             language=original.get("language"),
             exercise=original.get("exercise"),
             level=original.get("level"),
-            review_type=original.get("review_type"),
+            review_type=review_type,
             student_code=student_code,
             response=resultado,
             student_id=original.get("student_id"),
             session_id=original.get("session_id"),
             parent_review_id=original["id"],
+            prompt_sent=prompt_sent,
         )
         new_review_id = row["id"]
     except review_repository.RepositoryError as error:

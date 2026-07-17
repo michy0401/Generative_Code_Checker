@@ -45,3 +45,34 @@ def test_student_code_exceeding_char_limit_raises_without_external_calls():
     fields["student_code"] = "x" * (llm_connector.MAX_STUDENT_CODE_CHARS + 1)
     with pytest.raises(llm_connector.InputValidationError):
         llm_connector._process_input(**fields)
+
+
+# --- review_type controlado (RF-03, seccion 4.1 del documento del proyecto) -------
+
+@pytest.mark.parametrize("review_type", llm_connector.ALLOWED_REVIEW_TYPES)
+def test_valid_review_type_passes(review_type):
+    fields = dict(VALID_FIELDS)
+    fields["review_type"] = review_type
+    result = llm_connector._process_input(**fields)
+    assert result["review_type"] == review_type
+
+
+@pytest.mark.parametrize("review_type", ["ERRORES", "  Legibilidad  ", "Seguridad Básica"])
+def test_valid_review_type_is_case_and_accent_insensitive(review_type):
+    # Normalizacion: mayusculas/minusculas, tildes y espacios de mas no deben
+    # rechazar un valor que de otro modo es correcto.
+    fields = dict(VALID_FIELDS)
+    fields["review_type"] = review_type
+    llm_connector._process_input(**fields)  # no debe lanzar
+
+
+def test_invalid_review_type_raises_with_allowed_values_in_message():
+    fields = dict(VALID_FIELDS)
+    fields["review_type"] = "cositas raras"
+    with pytest.raises(llm_connector.InputValidationError) as exc_info:
+        llm_connector._process_input(**fields)
+
+    message = str(exc_info.value)
+    assert "cositas raras" in message
+    for allowed in llm_connector.ALLOWED_REVIEW_TYPES:
+        assert allowed in message
