@@ -52,8 +52,13 @@ SWAGGER_TEMPLATE = {
             "name": "Authorization",
             "in": "header",
             "description": (
-                "JWT de una sesion de Supabase Auth. Formato: 'Bearer <access_token>'. "
-                "Requerido solo en los endpoints marcados como autenticacion obligatoria; "
+                "JWT de una sesion de Supabase Auth. "
+                "IMPORTANTE: escribi la palabra 'Bearer' seguida de un espacio ANTES de pegar el "
+                "token (ej. 'Bearer eyJhbGc...'). Swagger UI NO agrega ese prefijo automaticamente "
+                "para este tipo de seguridad (apiKey) - si pegas solo el token, en los endpoints de "
+                "autenticacion OPCIONAL el request va a responder 200 igual pero en modo anonimo, "
+                "sin ningun error que lo avise (en los de autenticacion obligatoria si vas a ver un "
+                "401 claro). Requerido solo en los endpoints marcados como autenticacion obligatoria; "
                 "opcional (cambia el comportamiento pero no bloquea) en los demas."
             ),
         }
