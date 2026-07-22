@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import apiFetch from '../utils/apiFetch';
 
-// Definimos la forma exacta del JSON completo de la IA para TypeScript
 interface AIResponsePayload {
   summary?: { score?: number; overall_assessment?: string };
   findings?: Array<{
@@ -74,98 +73,126 @@ export default function History() {
     return null;
   };
 
-  if (loading) return <div className="flex h-screen items-center justify-center font-bold text-gray-600">Cargando tu historial...</div>;
+  if (loading) return (
+    <div className="flex h-screen items-center justify-center bg-slate-50">
+      <div className="flex flex-col items-center">
+        <svg className="animate-spin h-10 w-10 text-indigo-600 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+        <span className="font-bold text-slate-600">Cargando tu historial...</span>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="min-h-screen bg-gray-50 py-10 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-5xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-200 bg-gray-900 flex justify-between items-center">
-          <h2 className="text-xl font-bold text-white">Mi Historial de Revisiones</h2>
-          <span className="text-xs bg-gray-800 text-gray-300 px-3 py-1 rounded-full font-mono">Total: {reviews.length}</span>
+    <div className="min-h-[calc(100vh-4rem)] bg-slate-50 py-12 px-4 sm:px-6 lg:px-8 font-sans">
+      <div className="max-w-6xl mx-auto bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
+        
+        <div className="px-8 py-6 bg-slate-900 border-b border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-4">
+          <h2 className="text-2xl font-extrabold text-white tracking-tight">Registro de Auditorías</h2>
+          <span className="text-xs bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-4 py-1.5 rounded-full font-bold uppercase tracking-wider">
+            Total: {reviews.length} revisiones
+          </span>
         </div>
 
         {error ? (
-          <div className="p-8 text-center text-red-600 font-bold bg-red-50">{error}</div>
+          <div className="p-10 text-center bg-rose-50 border-b border-rose-100">
+            <h3 className="text-lg font-bold text-rose-800 mb-1">Error al cargar datos</h3>
+            <p className="text-rose-600">{error}</p>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-gray-50 text-gray-500 text-sm uppercase tracking-wider border-b border-gray-200">
-                  <th className="px-6 py-4 font-semibold">Fecha</th>
-                  <th className="px-6 py-4 font-semibold">Lenguaje</th>
-                  <th className="px-6 py-4 font-semibold">Criterio</th>
-                  <th className="px-6 py-4 font-semibold">Estado</th>
-                  <th className="px-6 py-4 font-semibold text-right">Acción</th>
+                <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider border-b border-slate-200">
+                  <th className="px-8 py-5 font-bold">Fecha</th>
+                  <th className="px-8 py-5 font-bold">Lenguaje</th>
+                  <th className="px-8 py-5 font-bold">Criterio</th>
+                  <th className="px-8 py-5 font-bold">Decisión</th>
+                  <th className="px-8 py-5 font-bold text-right">Acciones</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody className="divide-y divide-slate-100">
                 {reviews.map((review) => (
-                  <tr key={review.id} className="hover:bg-gray-50 transition">
-                    <td className="px-6 py-4 text-sm text-gray-800">
+                  <tr key={review.id} className="hover:bg-slate-50 transition-colors duration-150">
+                    <td className="px-8 py-5 text-sm text-slate-600 font-medium">
                       {new Date(review.created_at).toLocaleDateString()}
                     </td>
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">{review.language}</td>
-                    <td className="px-6 py-4 text-sm text-gray-600">{review.review_type}</td>
-                    <td className="px-6 py-4">
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                        review.status === 'accepted' ? 'bg-green-100 text-green-800' :
-                        review.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'
+                    <td className="px-8 py-5 text-sm font-bold text-slate-900">{review.language}</td>
+                    <td className="px-8 py-5 text-sm text-slate-500">{review.review_type}</td>
+                    <td className="px-8 py-5">
+                      <span className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${
+                        review.status === 'accepted' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                        review.status === 'pending' ? 'bg-amber-50 text-amber-700 border-amber-200' : 
+                        'bg-rose-50 text-rose-700 border-rose-200'
                       }`}>
-                        {review.status}
+                        {review.status === 'accepted' ? 'ACEPTADO' : review.status === 'pending' ? 'PENDIENTE' : 'DESCARTADO'}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-right">
-                      <button onClick={() => setSelectedReview(review)} className="text-blue-600 hover:text-blue-800 text-sm font-semibold cursor-pointer">
-                        Ver Detalle
+                    <td className="px-8 py-5 text-right">
+                      <button 
+                        onClick={() => setSelectedReview(review)} 
+                        className="text-indigo-600 hover:text-indigo-800 text-sm font-bold bg-indigo-50 hover:bg-indigo-100 px-4 py-2 rounded-lg transition-colors cursor-pointer"
+                      >
+                        Evidencia
                       </button>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            {reviews.length === 0 && <div className="text-center py-12 text-gray-500">No tienes revisiones registradas todavía.</div>}
+            {reviews.length === 0 && (
+              <div className="text-center py-20 text-slate-400 font-medium">
+                <svg className="w-12 h-12 mx-auto mb-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                No tienes revisiones registradas todavía.
+              </div>
+            )}
           </div>
         )}
       </div>
 
       {selectedReview && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-gray-100">
-            <div className="px-6 py-4 bg-gray-900 text-white flex justify-between items-center sticky top-0">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200 flex flex-col">
+            
+            <div className="px-8 py-5 bg-slate-900 text-white flex justify-between items-center sticky top-0 z-10 border-b border-slate-800">
               <div>
-                <h3 className="text-lg font-bold">Detalle de la Revisión</h3>
-                <p className="text-xs text-gray-400 font-mono">ID: {selectedReview.id}</p>
+                <h3 className="text-lg font-bold tracking-tight">Evidencia de Auditoría</h3>
+                <p className="text-xs text-slate-400 font-mono mt-1 opacity-70">REF: {selectedReview.id}</p>
               </div>
-              <button onClick={() => setSelectedReview(null)} className="text-gray-400 hover:text-white text-xl font-bold px-2 py-1 cursor-pointer">&times;</button>
+              <button 
+                onClick={() => setSelectedReview(null)} 
+                className="text-slate-400 hover:text-white hover:bg-slate-800 h-10 w-10 flex items-center justify-center rounded-full transition-colors cursor-pointer"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+              </button>
             </div>
 
-            <div className="p-6 space-y-6">
-              <div className="grid grid-cols-2 gap-4 bg-gray-50 p-4 rounded-xl border border-gray-200 text-sm">
-                <div><span className="text-gray-500 block text-xs uppercase font-semibold">Lenguaje</span><strong className="text-gray-800">{selectedReview.language}</strong></div>
-                <div><span className="text-gray-500 block text-xs uppercase font-semibold">Criterio</span><strong className="text-gray-800">{selectedReview.review_type}</strong></div>
+            <div className="p-8 space-y-8">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-slate-50 p-6 rounded-2xl border border-slate-100 text-sm shadow-inner">
+                <div><span className="text-slate-400 block text-xs uppercase font-bold tracking-wider mb-1">Lenguaje</span><strong className="text-slate-800 text-base">{selectedReview.language}</strong></div>
+                <div><span className="text-slate-400 block text-xs uppercase font-bold tracking-wider mb-1">Criterio</span><strong className="text-slate-800">{selectedReview.review_type}</strong></div>
+                <div><span className="text-slate-400 block text-xs uppercase font-bold tracking-wider mb-1">Fecha</span><strong className="text-slate-800">{new Date(selectedReview.created_at).toLocaleDateString()}</strong></div>
                 <div>
-                  <span className="text-gray-500 block text-xs uppercase font-semibold">Estado</span>
-                  <span className={`inline-block px-2 py-0.5 mt-1 rounded text-xs font-bold ${
-                    selectedReview.status === 'accepted' ? 'bg-green-100 text-green-800' :
-                    selectedReview.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'
+                  <span className="text-slate-400 block text-xs uppercase font-bold tracking-wider mb-1">Estado</span>
+                  <span className={`inline-block px-2.5 py-1 rounded-md text-xs font-bold border ${
+                    selectedReview.status === 'accepted' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                    selectedReview.status === 'pending' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-rose-50 text-rose-700 border-rose-200'
                   }`}>
-                    {selectedReview.status}
+                    {selectedReview.status.toUpperCase()}
                   </span>
                 </div>
-                <div><span className="text-gray-500 block text-xs uppercase font-semibold">Fecha</span><strong className="text-gray-800">{new Date(selectedReview.created_at).toLocaleString()}</strong></div>
               </div>
 
               {selectedReview.exercise && (
                 <div>
-                  <h4 className="text-sm font-semibold text-gray-700 mb-1">Objetivo del Ejercicio</h4>
-                  <p className="text-sm bg-blue-50 text-blue-900 p-3 rounded-lg border border-blue-100">{selectedReview.exercise}</p>
+                  <h4 className="text-sm font-extrabold text-slate-900 mb-2 uppercase tracking-wide">Contexto del Ejercicio</h4>
+                  <p className="text-sm bg-indigo-50/50 text-indigo-900 p-4 rounded-xl border border-indigo-100">{selectedReview.exercise}</p>
                 </div>
               )}
 
               {selectedReview.prompt_sent && (
                 <div>
-                  <h4 className="text-sm font-semibold text-gray-700 mb-1">Prompt Enviado al LLM</h4>
-                  <pre className="bg-gray-800 text-gray-300 p-4 rounded-lg font-mono text-xs overflow-x-auto max-h-40 whitespace-pre-wrap">
+                  <h4 className="text-sm font-extrabold text-slate-900 mb-2 uppercase tracking-wide">Trazabilidad: Prompt LLM</h4>
+                  <pre className="bg-slate-900 text-slate-300 p-5 rounded-xl font-mono text-xs overflow-x-auto max-h-48 whitespace-pre-wrap shadow-inner border border-slate-800 leading-relaxed">
                     {selectedReview.prompt_sent}
                   </pre>
                 </div>
@@ -173,18 +200,17 @@ export default function History() {
 
               {selectedReview.student_code && (
                 <div>
-                  <h4 className="text-sm font-semibold text-gray-700 mb-1">Código Original Analizado</h4>
-                  <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg font-mono text-xs overflow-x-auto max-h-48">
+                  <h4 className="text-sm font-extrabold text-slate-900 mb-2 uppercase tracking-wide">Código Original</h4>
+                  <pre className="bg-slate-900 text-slate-100 p-5 rounded-xl font-mono text-xs overflow-x-auto max-h-64 shadow-inner border border-slate-800 leading-relaxed">
                     {selectedReview.student_code}
                   </pre>
                 </div>
               )}
 
-              {/* GAP 6 RESTO: Summary, Tests, Warnings y Código Sugerido */}
               {getParsedResponse(selectedReview.response)?.summary?.overall_assessment && (
                 <div>
-                  <h4 className="text-sm font-semibold text-gray-700 mb-1">Evaluación General</h4>
-                  <p className="text-sm text-gray-800 bg-green-50 p-3 rounded-lg border border-green-100">
+                  <h4 className="text-sm font-extrabold text-slate-900 mb-2 uppercase tracking-wide">Evaluación General IA</h4>
+                  <p className="text-sm text-slate-800 bg-emerald-50/50 p-4 rounded-xl border border-emerald-100">
                     {getParsedResponse(selectedReview.response)?.summary?.overall_assessment}
                   </p>
                 </div>
@@ -192,12 +218,12 @@ export default function History() {
 
               {getParsedResponse(selectedReview.response)?.findings && (getParsedResponse(selectedReview.response)?.findings?.length ?? 0) > 0 && (
                 <div>
-                  <h4 className="text-sm font-semibold text-gray-700 mb-2">Hallazgos Principales (IA)</h4>
-                  <div className="space-y-2">
+                  <h4 className="text-sm font-extrabold text-slate-900 mb-3 uppercase tracking-wide">Hallazgos Principales</h4>
+                  <div className="space-y-3">
                     {getParsedResponse(selectedReview.response)?.findings?.map((f, idx) => (
-                      <div key={idx} className="p-3 bg-white border border-gray-200 rounded-lg text-sm">
-                        <strong className="text-gray-800 block">{f.title}</strong>
-                        <span className="text-gray-600">{f.description} (Línea {f.line})</span>
+                      <div key={idx} className="p-4 bg-white border border-slate-200 rounded-xl text-sm shadow-sm">
+                        <strong className="text-slate-900 block mb-1">{f.title}</strong>
+                        <span className="text-slate-600">{f.description} <span className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded ml-1">Línea {f.line}</span></span>
                       </div>
                     ))}
                   </div>
@@ -206,10 +232,13 @@ export default function History() {
 
               {getParsedResponse(selectedReview.response)?.tests && (getParsedResponse(selectedReview.response)?.tests?.length ?? 0) > 0 && (
                 <div>
-                  <h4 className="text-sm font-semibold text-gray-700 mb-1">Pruebas Sugeridas</h4>
-                  <ul className="list-disc pl-5 space-y-1 text-sm text-gray-700 bg-white border border-gray-200 p-4 rounded-lg">
+                  <h4 className="text-sm font-extrabold text-slate-900 mb-3 uppercase tracking-wide">Pruebas Sugeridas</h4>
+                  <ul className="space-y-3">
                     {getParsedResponse(selectedReview.response)?.tests?.map((test, idx) => (
-                      <li key={idx}><strong>{test.test_name || test.title}:</strong> {test.description}</li>
+                      <li key={idx} className="bg-white border border-slate-200 p-4 rounded-xl text-sm shadow-sm">
+                        <strong className="block text-slate-800 mb-1">{test.test_name || test.title}:</strong> 
+                        <span className="text-slate-600">{test.description}</span>
+                      </li>
                     ))}
                   </ul>
                 </div>
@@ -217,8 +246,8 @@ export default function History() {
 
               {getParsedResponse(selectedReview.response)?.suggested_code?.improved_code && (
                 <div>
-                  <h4 className="text-sm font-semibold text-gray-700 mb-1">Código Sugerido</h4>
-                  <pre className="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-xs overflow-x-auto max-h-48">
+                  <h4 className="text-sm font-extrabold text-slate-900 mb-2 uppercase tracking-wide">Código Sugerido</h4>
+                  <pre className="bg-slate-900 text-emerald-400 p-5 rounded-xl font-mono text-xs overflow-x-auto max-h-64 shadow-inner border border-slate-800 leading-relaxed">
                     {getParsedResponse(selectedReview.response)?.suggested_code?.improved_code}
                   </pre>
                 </div>
@@ -226,8 +255,8 @@ export default function History() {
 
               {getParsedResponse(selectedReview.response)?.warnings && (getParsedResponse(selectedReview.response)?.warnings?.length ?? 0) > 0 && (
                 <div>
-                  <h4 className="text-sm font-semibold text-yellow-800 mb-1">Advertencias</h4>
-                  <ul className="list-disc pl-5 space-y-1 text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 p-4 rounded-lg">
+                  <h4 className="text-sm font-extrabold text-amber-900 mb-3 uppercase tracking-wide">Advertencias del Modelo</h4>
+                  <ul className="list-disc pl-5 space-y-2 text-sm text-amber-800 bg-amber-50/50 border border-amber-200 p-5 rounded-xl">
                     {getParsedResponse(selectedReview.response)?.warnings?.map((warn, idx) => (
                       <li key={idx}>{warn}</li>
                     ))}
@@ -237,15 +266,20 @@ export default function History() {
 
               {selectedReview.student_comment && (
                 <div>
-                  <h4 className="text-sm font-semibold text-gray-700 mb-1">Comentario Humano Registrado</h4>
-                  <p className="text-sm bg-gray-100 text-gray-800 p-3 rounded-lg border border-gray-200 italic">"{selectedReview.student_comment}"</p>
+                  <h4 className="text-sm font-extrabold text-slate-900 mb-2 uppercase tracking-wide">Feedback Humano Registrado</h4>
+                  <p className="text-sm bg-slate-100 text-slate-700 p-4 rounded-xl border border-slate-200 italic shadow-inner">
+                    "{selectedReview.student_comment}"
+                  </p>
                 </div>
               )}
             </div>
 
-            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end">
-              <button onClick={() => setSelectedReview(null)} className="px-5 py-2 bg-gray-900 hover:bg-gray-800 text-white text-sm font-bold rounded-lg transition cursor-pointer">
-                Cerrar
+            <div className="px-8 py-5 bg-slate-50 border-t border-slate-200 flex justify-end sticky bottom-0">
+              <button 
+                onClick={() => setSelectedReview(null)} 
+                className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-bold rounded-xl shadow-md transition-colors cursor-pointer"
+              >
+                Cerrar Evidencia
               </button>
             </div>
           </div>
