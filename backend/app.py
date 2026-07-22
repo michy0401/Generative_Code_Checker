@@ -227,7 +227,7 @@ def create_app():
         origins=app.config["ALLOWED_ORIGINS"],
         supports_credentials=False,
         allow_headers=["Content-Type", "Authorization"],
-        methods=["GET", "POST", "OPTIONS"],
+        methods=["GET", "POST", "PATCH", "OPTIONS"],
     )
 
     limiter.init_app(app)
