@@ -1,75 +1,29 @@
-# React + TypeScript + Vite
+# IA CodeReview - Documento Funcional (Frontend)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Este proyecto corresponde a la interfaz de usuario del sistema generativo de revisión de código, desarrollado como parte de los entregables de la carrera de Ingeniería en Software y Negocios Digitales en ESEN.
 
-Currently, two official plugins are available:
+Está construido utilizando tecnologías web modernas (Vite, React, TypeScript, Tailwind CSS) enfocadas en el rendimiento y una experiencia de usuario fluida.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Requisitos Previos e Instalación Local
+Asegúrate de tener Node.js (v18+) instalado.
+1. `cd frontend`
+2. `npm install`
+3. Crea un archivo `.env.local` con las variables:
+    `VITE_SUPABASE_URL="https://loglmdehedodfkrjmjnb.supabase.co"`
+    `VITE_SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxvZ2xtZGVoZWRvZGZrcmptam5iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQyNjc0MDEsImV4cCI6MjA5OTg0MzQwMX0.pmedy0SOM-fpHmgPhNAFnZhfYg2Rr1rAPqRPtW-Ih70"`
+4. `npm run dev` para levantar el servidor en el puerto `5173`.
 
-## React Compiler
+## Arquitectura de Rutas y Casos Principales
+El frontend implementa protección de rutas mediante un sistema de sesión (Supabase Auth y LocalStorage para usuarios anónimos).
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+* **`/review` (Ruta Pública - Camino Principal):** Permite a cualquier estudiante enviar fragmentos de código (máximo 20,000 caracteres) y seleccionar criterios de evaluación específicos. Renderiza el análisis dinámico generado por la IA (hallazgos, pruebas, explicaciones) e incluye un visor de diferencias (DiffViewer).
+* **`/login` & `/register` (Rutas Públicas):** Gestión de identidad de usuarios.
+* **`/dashboard` (Ruta Protegida):** Panel analítico que muestra métricas globales (Tasa de Aceptación, Lenguaje Principal, Errores Comunes).
+* **`/history` (Ruta Protegida):** Tabla de trazabilidad que permite visualizar el historial de revisiones del usuario y abrir la evidencia completa del diagnóstico.
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
-```
-
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
-```
+## Reglas de Negocio (Control Humano RF-08)
+El sistema exige trazabilidad de las decisiones del desarrollador sobre las sugerencias de la IA. Desde la vista de revisión, el usuario cuenta con 4 acciones:
+1. **Aceptar:** Registra el código de la IA como válido (`status: 'accepted'`).
+2. **Descartar:** Rechaza la sugerencia de la IA (`status: 'discarded'`).
+3. **Comentar:** Permite añadir feedback cualitativo al diagnóstico sin alterar la decisión previa (mantiene el `status` intacto).
+4. **Regenerar:** Solicita una segunda opinión a la IA, creando una nueva revisión hija vinculada a la petición original.

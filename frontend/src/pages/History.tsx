@@ -1,14 +1,18 @@
 import { useState, useEffect } from 'react';
 import apiFetch from '../utils/apiFetch';
 
-// Definimos la forma exacta del JSON de la IA para que TypeScript no se queje
+// Definimos la forma exacta del JSON completo de la IA para TypeScript
 interface AIResponsePayload {
+  summary?: { score?: number; overall_assessment?: string };
   findings?: Array<{
     title: string;
     description: string;
     line: number;
     [key: string]: unknown;
   }>;
+  suggested_code?: { improved_code?: string; [key: string]: unknown };
+  tests?: Array<{ test_name?: string; title?: string; description?: string; [key: string]: unknown }>;
+  warnings?: string[];
   [key: string]: unknown;
 }
 
@@ -21,7 +25,7 @@ interface ReviewRecord {
   student_code?: string;
   exercise?: string;
   prompt_sent?: string;
-  response?: string | AIResponsePayload; // 1. Adiós 'any'
+  response?: string | AIResponsePayload;
   student_comment?: string;
   [key: string]: unknown;
 }
@@ -57,7 +61,6 @@ export default function History() {
     fetchHistory();
   }, []);
 
-  // 2. Usamos 'unknown' en vez de 'any' y forzamos el retorno al Payload
   const getParsedResponse = (res: unknown): AIResponsePayload | null => {
     if (!res) return null;
     if (typeof res === 'object') return res as AIResponsePayload;
@@ -177,11 +180,20 @@ export default function History() {
                 </div>
               )}
 
-              {getParsedResponse(selectedReview.response) && (
+              {/* GAP 6 RESTO: Summary, Tests, Warnings y Código Sugerido */}
+              {getParsedResponse(selectedReview.response)?.summary?.overall_assessment && (
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-700 mb-1">Evaluación General</h4>
+                  <p className="text-sm text-gray-800 bg-green-50 p-3 rounded-lg border border-green-100">
+                    {getParsedResponse(selectedReview.response)?.summary?.overall_assessment}
+                  </p>
+                </div>
+              )}
+
+              {getParsedResponse(selectedReview.response)?.findings && (getParsedResponse(selectedReview.response)?.findings?.length ?? 0) > 0 && (
                 <div>
                   <h4 className="text-sm font-semibold text-gray-700 mb-2">Hallazgos Principales (IA)</h4>
                   <div className="space-y-2">
-                    {/* 3. Adiós '(f: any, idx: number)'. TypeScript ya infiere los tipos automáticamente gracias al Payload */}
                     {getParsedResponse(selectedReview.response)?.findings?.map((f, idx) => (
                       <div key={idx} className="p-3 bg-white border border-gray-200 rounded-lg text-sm">
                         <strong className="text-gray-800 block">{f.title}</strong>
@@ -189,6 +201,37 @@ export default function History() {
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {getParsedResponse(selectedReview.response)?.tests && (getParsedResponse(selectedReview.response)?.tests?.length ?? 0) > 0 && (
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-700 mb-1">Pruebas Sugeridas</h4>
+                  <ul className="list-disc pl-5 space-y-1 text-sm text-gray-700 bg-white border border-gray-200 p-4 rounded-lg">
+                    {getParsedResponse(selectedReview.response)?.tests?.map((test, idx) => (
+                      <li key={idx}><strong>{test.test_name || test.title}:</strong> {test.description}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {getParsedResponse(selectedReview.response)?.suggested_code?.improved_code && (
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-700 mb-1">Código Sugerido</h4>
+                  <pre className="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-xs overflow-x-auto max-h-48">
+                    {getParsedResponse(selectedReview.response)?.suggested_code?.improved_code}
+                  </pre>
+                </div>
+              )}
+
+              {getParsedResponse(selectedReview.response)?.warnings && (getParsedResponse(selectedReview.response)?.warnings?.length ?? 0) > 0 && (
+                <div>
+                  <h4 className="text-sm font-semibold text-yellow-800 mb-1">Advertencias</h4>
+                  <ul className="list-disc pl-5 space-y-1 text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 p-4 rounded-lg">
+                    {getParsedResponse(selectedReview.response)?.warnings?.map((warn, idx) => (
+                      <li key={idx}>{warn}</li>
+                    ))}
+                  </ul>
                 </div>
               )}
 

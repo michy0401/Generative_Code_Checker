@@ -103,18 +103,26 @@ export default function CodeReviewForm() {
     }
   };
 
-  const handleAction = async (status: 'accepted' | 'discarded' | 'pending') => {
+  // GAP 20: Nueva lógica para no sobreescribir el status si es solo comentario
+  const handleAction = async (actionType: 'accepted' | 'discarded' | 'comment_only') => {
     if (!aiResponse?.review_id) return;
     
     setActionStatus('loading');
     try {
+      // Armamos el payload dinámicamente
+      const bodyPayload: Record<string, unknown> = { 
+        student_comment: studentComment,
+        session_id: sessionId 
+      };
+      
+      // Solo enviamos la llave 'status' si la acción NO es 'comment_only'
+      if (actionType !== 'comment_only') {
+        bodyPayload.status = actionType;
+      }
+
       const response = await apiFetch(`/api/reviews/${aiResponse.review_id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ 
-          status, 
-          student_comment: studentComment,
-          session_id: sessionId // GAP 18: El session_id vital para que no tire 403
-        })
+        body: JSON.stringify(bodyPayload)
       });
 
       if (!response.ok) {
@@ -124,8 +132,8 @@ export default function CodeReviewForm() {
 
       setActionStatus('success');
       setActionMessage(
-        status === 'accepted' ? '¡Revisión aceptada exitosamente!' : 
-        status === 'discarded' ? 'Revisión descartada. Gracias por el feedback.' :
+        actionType === 'accepted' ? '¡Revisión aceptada exitosamente!' : 
+        actionType === 'discarded' ? 'Revisión descartada. Gracias por el feedback.' :
         'Comentario guardado exitosamente.'
       );
     } catch (err: unknown) {
@@ -240,7 +248,6 @@ export default function CodeReviewForm() {
               <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
                 <h4 className="font-bold text-gray-800 mb-4">Explicación Educativa</h4>
                 <div className="space-y-4">
-                  {/* GAP 19: Keys correctas del schema de Gemini */}
                   {aiResponse.explanation.map((exp, index) => (
                     <div key={index} className="p-4 bg-blue-50 rounded-lg border border-blue-100">
                       <strong className="text-blue-900 block mb-2 text-lg">
@@ -297,11 +304,11 @@ export default function CodeReviewForm() {
                     <textarea rows={2} value={studentComment} onChange={(e) => setStudentComment(e.target.value)} placeholder="¿Qué opinas de esta revisión? ¿Te sirvió?" className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none resize-none text-sm" />
                   </div>
                   <div className="flex flex-wrap justify-end gap-3">
-                    {/* GAP 4: Botones individuales de acción */}
                     <button onClick={handleRegenerate} disabled={actionStatus === 'loading'} className="px-4 py-2 border border-purple-300 text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg font-bold transition disabled:opacity-50">
                       Regenerar Diagnóstico
                     </button>
-                    <button onClick={() => handleAction('pending')} disabled={actionStatus === 'loading'} className="px-4 py-2 border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg font-bold transition disabled:opacity-50">
+                    {/* GAP 20: Ahora envía 'comment_only' y no toca el status */}
+                    <button onClick={() => handleAction('comment_only')} disabled={actionStatus === 'loading'} className="px-4 py-2 border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg font-bold transition disabled:opacity-50">
                       Solo Comentar
                     </button>
                     <button onClick={() => handleAction('discarded')} disabled={actionStatus === 'loading'} className="px-4 py-2 border border-red-300 text-red-700 bg-red-50 hover:bg-red-100 rounded-lg font-bold transition disabled:opacity-50">
