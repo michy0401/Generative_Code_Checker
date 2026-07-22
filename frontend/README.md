@@ -1,5 +1,7 @@
 # IA CodeReview - Documento Funcional (Frontend)
 
+> Ver también: [README del proyecto](../README.md) (visión general del sistema completo, backend + frontend) y [Referencia de la API del backend](../backend/docs/REFERENCIA_API.md) (todos los endpoints que consume esta interfaz, con sus campos y códigos de error).
+
 Este proyecto corresponde a la interfaz de usuario del sistema generativo de revisión de código, desarrollado como parte de los entregables de la carrera de Ingeniería en Software y Negocios Digitales en ESEN.
 
 Está construido utilizando tecnologías web modernas (Vite, React, TypeScript, Tailwind CSS) enfocadas en el rendimiento y una experiencia de usuario fluida.

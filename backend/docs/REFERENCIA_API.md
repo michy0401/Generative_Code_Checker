@@ -7,8 +7,9 @@ JSON crudo de la spec (OpenAPI/Swagger 2.0): `http://127.0.0.1:5000/api/openapi.
 
 Este documento es la referencia completa de la API para integrar el frontend. Para setup del
 backend, variables de entorno y cómo correr los tests, ver `README.md`. Para el detalle técnico
-de JWT/JWKS, ver `docs/AUTH_PARA_FRONTEND.md`. Para cómo usar Swagger UI paso a paso (incluyendo
-troubleshooting real), ver `docs/GUIA_SWAGGER.md`.
+de JWT/JWKS, ver `docs/AUTH_PARA_FRONTEND.md`. Para probar cualquier endpoint en vivo desde el
+navegador (incluyendo el botón "Authorize" para pegar un JWT), usar Swagger UI en
+`http://127.0.0.1:5000/api/docs/` con el servidor corriendo.
 
 ---
 
@@ -209,14 +210,16 @@ El estudiante acepta, descarta y/o comenta una revisión ya generada (revisión 
   `session_id` correcto en el body)
 - **Body** (ambos campos opcionales, mandá al menos uno):
 
-| Campo | Tipo | Valores permitidos |
-|---|---|---|
-| `status` | string | `pending`, `accepted`, `discarded` |
-| `student_comment` | string | texto libre |
-| `session_id` | string | requerido solo si la revisión es anónima |
+| Campo | Tipo | Valores permitidos | Notas |
+|---|---|---|---|
+| `status` | string | `pending`, `accepted`, `discarded` | **Opcional.** Si se omite, el `status` actual de la revisión **no cambia** — es lo que permite implementar una acción de "solo comentar" sin alterar una decisión de aceptar/descartar ya tomada antes. No hace falta reenviar el valor actual para "no tocarlo": simplemente no incluyas la llave `status` en el body. |
+| `student_comment` | string | texto libre | Opcional, independiente de `status`. |
+| `session_id` | string | — | Requerido solo si la revisión es anónima (debe coincidir exactamente con el `session_id` que la creó). |
 
-  Solo se actualiza el campo que mandás — si mandás solo `student_comment`, el `status` anterior
-  no se toca (y viceversa).
+  Se requiere mandar **al menos uno** de `status`/`student_comment` (si no se manda ninguno de los
+  dos, `400`). Cada uno se actualiza de forma independiente: mandar solo `student_comment` deja el
+  `status` existente intacto, y viceversa — nunca se sobreescribe con un valor por defecto ni se
+  infiere el que ya tenía la fila.
 
 - **Respuesta 200**: la fila actualizada completa (mismo formato que `GET /api/reviews/<id>`)
 - **Errores**: `400` (no mandaste ni `status` ni `student_comment`, o `status` no es uno de los
@@ -238,7 +241,7 @@ Pide una nueva pasada de análisis sobre una revisión existente. Crea una fila 
 |---|---|---|
 | `session_id` | string | requerido solo si la original es anónima |
 | `student_code` | string | si no se manda, reusa el código de la revisión original |
-| `review_type` | string | si no se manda, reusa el original (no se re-valida); si se manda uno nuevo, debe ser válido de la misma lista de `POST /api/review` |
+| `review_type` | string | si no se manda, reusa el `review_type` de la revisión original (que ya era válido, así que nunca falla por este motivo); si se manda uno nuevo, tiene que ser uno de los valores permitidos (misma lista que `POST /api/review`) o responde `400` |
 | `motivo_regeneracion` | string | texto libre, opcional — se lo pasa a la IA como contexto de por qué se pide de nuevo |
 
 - **Respuesta 200**: mismo formato que `POST /api/review`, más `parent_review_id` apuntando a la

@@ -1,10 +1,18 @@
 # Backend - Sistema Inteligente de Revision de Codigo para Estudiantes
 
+> Ver tambien: [README del proyecto](../README.md) (vision general del sistema completo) y
+> [README del frontend](../frontend/README.md).
+
 Backend en Flask que expone el modulo de IA de revision de codigo (`services/llm_connector.py`),
 implementado siguiendo el pipeline documentado en la arquitectura del proyecto:
 Input Processor -> Prompt Builder -> LLM Service -> Output Parser -> Response Validator.
 
 Cada revision se persiste en Supabase (tabla `reviews`) a traves de `repositories/review_repository.py`.
+
+Para el detalle completo de cada endpoint (campos, respuestas de ejemplo, todos los codigos de
+error), ver **[`docs/REFERENCIA_API.md`](docs/REFERENCIA_API.md)** - es la fuente de verdad para
+quien integre el frontend contra esta API. Este README cubre instalacion y ejecucion, no el
+contrato de la API en si.
 
 ## Requisitos
 
@@ -100,7 +108,8 @@ Postman o generadores de clientes.
 
 Este README y `docs/AUTH_PARA_FRONTEND.md` explican el panorama general y el flujo de
 autenticacion; para el detalle tecnico de cada endpoint (parametros exactos, respuestas, codigos
-de error), `/api/docs` es la fuente de verdad.
+de error), tanto `docs/REFERENCIA_API.md` (para leer) como `/api/docs` (para probar en vivo con
+"Try it out") son la fuente de verdad - deberian decir siempre lo mismo.
 
 `POST /api/review` acepta opcionalmente el header `Authorization: Bearer <token>`: si el
 token es valido, la revision queda asociada al `student_id` del usuario; si no se manda ningun
@@ -156,8 +165,8 @@ backend/
 │   ├── 002_add_parent_review.sql # idem - agrega reviews.parent_review_id
 │   └── 003_add_status_comment_prompt.sql # idem - status/student_comment/prompt_sent
 ├── docs/
+│   ├── REFERENCIA_API.md          # Referencia completa de los 9 endpoints (fuente de verdad)
 │   ├── AUTH_PARA_FRONTEND.md      # Como el frontend debe mandar el JWT de Supabase Auth
-│   ├── AUDITORIA_BACKEND.md       # Auditoria del backend + addendums de resolucion
 │   └── PROMPT_CHANGELOG.md        # Historial de versiones del SYSTEM_PROMPT
 ├── services/
 │   ├── llm_connector.py           # Modulo de IA

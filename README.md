@@ -1,51 +1,65 @@
-# IA CodeReview - Frontend 🚀
+# Sistema Inteligente de Revisión de Código para Estudiantes
 
-Este proyecto corresponde a la interfaz de usuario del sistema generativo de revisión de código, desarrollado como parte de los entregables de la carrera de Ingeniería en Software y Negocios Digitales (ISND) en ESEN.
+Proyecto final de la materia *Introducción a la Programación con IA* (Ciclo II - 2026, Ingeniería
+de Software y Negocios Digitales, ESEN). El sistema usa IA generativa (Google Gemini) como
+componente central del flujo: el estudiante envía un fragmento de código junto con el contexto del
+ejercicio, la IA genera un diagnóstico educativo estructurado (errores, mejoras, recomendaciones,
+explicación de cada hallazgo, código sugerido y pruebas propuestas), y el estudiante decide qué
+hacer con esa revisión — aceptarla, descartarla, comentarla o pedir una nueva pasada de análisis.
 
-Está construido utilizando tecnologías web modernas enfocadas en el rendimiento, la escalabilidad y una experiencia de usuario fluida (UX/UI).
+No es un simple envoltorio de un chat de IA: el sistema registra cada revisión con su prompt real,
+valida la respuesta del modelo contra un formato fijo, y mantiene trazabilidad completa de las
+decisiones humanas sobre cada diagnóstico.
 
-## 🛠️ Stack Tecnológico
-* **Core:** React 18
-* **Build Tool:** Vite
-* **Lenguaje:** TypeScript (Modo Estricto)
-* **Estilos:** Tailwind CSS
-* **Autenticación:** Supabase Auth (JWT Asimétrico)
-* **Comparación de Código:** react-diff-viewer-continued
+## Estructura del proyecto
 
-## ⚙️ Requisitos Previos
-Antes de iniciar, asegúrate de tener instalado:
-* [Node.js](https://nodejs.org/) (Versión 18 o superior recomendada)
-* npm o yarn
+```
+Generative_Code_Checker/
+├── backend/              # API en Flask + integración con Gemini + persistencia en Supabase
+├── frontend/              # Interfaz en React + Vite que consume esa API
+├── docs/                  # Documentación transversal (auditorías del sistema completo, backend+frontend)
+└── rubrica_evaluacion/    # Enunciado oficial del proyecto y rúbrica de evaluación de la materia
+```
 
-## 🚀 Instalación y Ejecución Local
+## Stack tecnológico
 
-1. Clona el repositorio y navega a la carpeta del frontend:
-   ```bash
-   cd frontend
-Instala las dependencias del proyecto:
-npm install
+| Parte | Tecnología |
+|---|---|
+| Backend | Python 3.10+, Flask, `google-genai` (Gemini), Supabase (Postgres) |
+| Frontend | React, TypeScript, Vite, Tailwind CSS |
+| Autenticación | Supabase Auth (JWT asimétrico, ES256), compartida entre backend y frontend |
+| Base de datos | Supabase Postgres (tabla `reviews`, ver esquema en `backend/docs/REFERENCIA_API.md`) |
 
-Configuración de Variables de Entorno:
-El sistema requiere conexión a Supabase para gestionar la autenticación y las sesiones. Crea un archivo llamado .env.local en la raíz de la carpeta frontend y agrega las siguientes credenciales (solicítalas al administrador de la base de datos o revisa el documento de Arquitectura Técnica):
+## Flujo end-to-end
 
-Fragmento de código
-VITE_SUPABASE_URL="https://loglmdehedodfkrjmjnb.supabase.co"
-VITE_SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxvZ2xtZGVoZWRvZGZrcmptam5iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQyNjc0MDEsImV4cCI6MjA5OTg0MzQwMX0.pmedy0SOM-fpHmgPhNAFnZhfYg2Rr1rAPqRPtW-Ih70"
+1. El estudiante (autenticado o anónimo) ingresa código y el contexto del ejercicio en el frontend (`/review`).
+2. El frontend manda ese input al backend (`POST /api/review`).
+3. El backend arma un prompt estructurado con guardrails educativos y se lo envía a Gemini.
+4. La respuesta se valida contra un Response Schema fijo (6 secciones) y se persiste en Supabase junto con el prompt real que se usó.
+5. El frontend muestra el diagnóstico completo: hallazgos, explicación, código sugerido y pruebas.
+6. El estudiante decide: aceptar, descartar, comentar o regenerar — cualquiera de esas acciones vuelve a pasar por el backend (`PATCH`/`POST .../regenerate`).
+7. El dashboard (`/dashboard`) y el historial (`/history`) consumen esas mismas revisiones persistidas para mostrar métricas agregadas y trazabilidad individual.
 
-Levanta el servidor de desarrollo:
-npm run dev
+## Cómo levantar el proyecto
 
-Abre tu navegador en http://localhost:5173.
-(Nota: Asegúrate de que el backend de Flask esté corriendo simultáneamente en el puerto 5000 para que el flujo End-to-End funcione correctamente).
+Este README no repite pasos de instalación — cada parte tiene el suyo, con sus propias variables
+de entorno y comandos:
 
+- **Backend**: ver [`backend/README.md`](backend/README.md) — venv, `.env`, migraciones de Supabase, cómo correr el servidor y los tests.
+- **Frontend**: ver [`frontend/README.md`](frontend/README.md) — instalación, `.env`, rutas de la aplicación y reglas de negocio del control humano (RF-08).
 
-📖 Arquitectura de Rutas y Funcionalidades
-El frontend implementa protección de rutas mediante un sistema de sesión persistente.
+Ambos servidores tienen que correr en paralelo (backend en `http://127.0.0.1:5000`, frontend en
+`http://localhost:5173`) para que el flujo completo funcione — el frontend llama directamente al
+backend por HTTP, no hay proxy ni servidor intermedio.
 
-/review (Ruta Pública): Pantalla principal. Permite a los usuarios (anónimos o registrados) enviar fragmentos de código, seleccionar criterios de evaluación (seguridad, rendimiento, etc.) y visualizar el análisis dinámico generado por la IA (incluyendo el visor Diff y las explicaciones detalladas).
+## Documentación de la API
 
-/login & /register (Rutas Públicas): Gestión de identidad de usuarios delegada a Supabase.
+- Referencia completa de los 9 endpoints (campos, respuestas de ejemplo, todos los códigos de error): [`backend/docs/REFERENCIA_API.md`](backend/docs/REFERENCIA_API.md)
+- Documentación interactiva (Swagger UI, "Try it out" en vivo contra el servidor real): `http://127.0.0.1:5000/api/docs/`, con el backend corriendo
+- Detalle del flujo de autenticación (JWT de Supabase Auth, JWKS/ES256): [`backend/docs/AUTH_PARA_FRONTEND.md`](backend/docs/AUTH_PARA_FRONTEND.md)
+- Historial de versiones del prompt del sistema: [`backend/docs/PROMPT_CHANGELOG.md`](backend/docs/PROMPT_CHANGELOG.md)
 
-/dashboard (Ruta Protegida): Panel de control analítico que consume los endpoints del backend para mostrar métricas clave del uso de la IA (Tasa de Aceptación, Lenguaje Principal, Errores Comunes).
+## Documentación adicional
 
-/history (Ruta Protegida): Tabla de trazabilidad y gestión documental. Permite visualizar el historial de revisiones del usuario y abrir un modal de "Evidencia Completa" con los prompts originales, el código evaluado y los comentarios humanos registrados.
+- `rubrica_evaluacion/`: enunciado oficial del proyecto y rúbrica de evaluación de la materia (no se modifica).
+- `docs/`: auditorías del sistema completo (backend + frontend integrados) realizadas durante el desarrollo.
