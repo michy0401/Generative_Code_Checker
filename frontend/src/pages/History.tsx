@@ -73,6 +73,28 @@ export default function History() {
     return null;
   };
 
+  const handleUpdateStatus = async (reviewId: string, newStatus: 'accepted' | 'discarded') => {
+    try {
+      const response = await apiFetch(`/api/reviews/${reviewId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: newStatus })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Error al actualizar el estado');
+      }
+
+      // Actualizamos el estado local para que la UI reaccione instantáneamente
+      setReviews(reviews.map(r => r.id === reviewId ? { ...r, status: newStatus } : r));
+      setSelectedReview(prev => prev ? { ...prev, status: newStatus } : null);
+      
+      alert(`Revisión ${newStatus === 'accepted' ? 'aceptada' : 'descartada'} exitosamente.`);
+    } catch (error) {
+      console.error("Error al actualizar la revisión:", error);
+      alert("Hubo un error al intentar cambiar el estado.");
+    }
+  };
+
   if (loading) return (
     <div className="flex h-screen items-center justify-center bg-slate-50">
       <div className="flex flex-col items-center">
@@ -274,10 +296,28 @@ export default function History() {
               )}
             </div>
 
-            <div className="px-8 py-5 bg-slate-50 border-t border-slate-200 flex justify-end sticky bottom-0">
+            <div className="px-8 py-5 bg-slate-50 border-t border-slate-200 flex justify-between items-center sticky bottom-0">
+              <div className="flex gap-3">
+                {selectedReview.status === 'pending' && (
+                  <>
+                    <button
+                      onClick={() => handleUpdateStatus(selectedReview.id, 'discarded')}
+                      className="px-5 py-2.5 bg-red-50 hover:bg-red-100 text-red-600 font-bold rounded-xl border border-red-200 transition-colors shadow-sm cursor-pointer"
+                    >
+                      Descartar
+                    </button>
+                    <button
+                      onClick={() => handleUpdateStatus(selectedReview.id, 'accepted')}
+                      className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition-colors shadow-md shadow-emerald-900/20 cursor-pointer"
+                    >
+                      Aceptar Revisión
+                    </button>
+                  </>
+                )}
+              </div>
               <button 
                 onClick={() => setSelectedReview(null)} 
-                className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-bold rounded-xl shadow-md transition-colors cursor-pointer"
+                className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-bold rounded-xl shadow-md transition-colors cursor-pointer ml-auto"
               >
                 Cerrar Evidencia
               </button>
