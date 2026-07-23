@@ -34,6 +34,9 @@ export default function History() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedReview, setSelectedReview] = useState<ReviewRecord | null>(null);
+  
+  // Nuevo estado para controlar nuestra alerta visual (Toast)
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
     const fetchHistory = async () => {
@@ -73,6 +76,14 @@ export default function History() {
     return null;
   };
 
+  // Función para mostrar el Toast y ocultarlo automáticamente a los 3 segundos
+  const showToast = (message: string, type: 'success' | 'error') => {
+    setToast({ message, type });
+    setTimeout(() => {
+      setToast(null);
+    }, 3000);
+  };
+
   const handleUpdateStatus = async (reviewId: string, newStatus: 'accepted' | 'discarded') => {
     try {
       const response = await apiFetch(`/api/reviews/${reviewId}`, {
@@ -88,9 +99,13 @@ export default function History() {
       setReviews(reviews.map(r => r.id === reviewId ? { ...r, status: newStatus } : r));
       setSelectedReview(prev => prev ? { ...prev, status: newStatus } : null);
       
+      // Lanzamos la notificación bonita de éxito
+      showToast(`Revisión ${newStatus === 'accepted' ? 'aceptada' : 'descartada'} exitosamente.`, 'success');
+      
     } catch (error) {
       console.error("Error al actualizar la revisión:", error);
-      alert("Hubo un error al intentar cambiar el estado.");
+      // Lanzamos la notificación bonita de error
+      showToast("Hubo un error al intentar cambiar el estado.", 'error');
     }
   };
 
@@ -104,7 +119,7 @@ export default function History() {
   );
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-slate-50 py-12 px-4 sm:px-6 lg:px-8 font-sans">
+    <div className="min-h-[calc(100vh-4rem)] bg-slate-50 py-12 px-4 sm:px-6 lg:px-8 font-sans relative">
       <div className="max-w-6xl mx-auto bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
         
         <div className="px-8 py-6 bg-slate-900 border-b border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-4">
@@ -324,6 +339,21 @@ export default function History() {
           </div>
         </div>
       )}
+
+      {/* Renderizado del Toast Flotante */}
+      {toast && (
+        <div className={`fixed top-10 left-1/2 transform -translate-x-1/2 z-[100] flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border animate-fade-in ${
+          toast.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-800'
+        }`}>
+          {toast.type === 'success' ? (
+            <svg className="w-6 h-6 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+          ) : (
+            <svg className="w-6 h-6 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+          )}
+          <span className="font-bold text-sm tracking-wide">{toast.message}</span>
+        </div>
+      )}
+      
     </div>
   );
 }
