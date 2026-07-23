@@ -88,7 +88,6 @@ export default function History() {
       setReviews(reviews.map(r => r.id === reviewId ? { ...r, status: newStatus } : r));
       setSelectedReview(prev => prev ? { ...prev, status: newStatus } : null);
       
-      alert(`Revisión ${newStatus === 'accepted' ? 'aceptada' : 'descartada'} exitosamente.`);
     } catch (error) {
       console.error("Error al actualizar la revisión:", error);
       alert("Hubo un error al intentar cambiar el estado.");
