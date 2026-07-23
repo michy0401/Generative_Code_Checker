@@ -62,6 +62,19 @@ export default function CodeReviewForm() {
   const [actionStatus, setActionStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [actionMessage, setActionMessage] = useState('');
 
+  // Función para reiniciar todo el formulario y volver al estado inicial
+  const handleResetForm = () => {
+    setLanguage('Python');
+    setLevel('Intermedio');
+    setReviewType('Buenas practicas');
+    setExercise('');
+    setStudentCode('');
+    setAiResponse(null);
+    setError(null);
+    setActionStatus('idle');
+    setStudentComment('');
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -327,9 +340,14 @@ export default function CodeReviewForm() {
             {/* Acciones Humanas */}
             <div className="bg-slate-50 p-8 rounded-2xl border border-slate-200 mt-8 shadow-inner">
               {actionStatus === 'success' ? (
-                <div className="text-center p-6 bg-emerald-100 text-emerald-800 font-bold rounded-xl border border-emerald-200 flex flex-col items-center justify-center">
-                  <svg className="w-12 h-12 mb-2 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                  {actionMessage}
+                <div className="text-center p-8 bg-emerald-100 text-emerald-800 font-bold rounded-xl border border-emerald-200 flex flex-col items-center justify-center">
+                  <svg className="w-14 h-14 mb-3 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                  <p className="text-lg">{actionMessage}</p>
+                  
+                  {/* Botón de Nueva Revisión en Estado de Éxito */}
+                  <button onClick={handleResetForm} className="mt-6 px-8 py-3 bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-200 rounded-xl font-bold transition-all duration-200 hover:-translate-y-0.5">
+                    Hacer una Nueva Revisión
+                  </button>
                 </div>
               ) : (
                 <div className="space-y-6">
@@ -339,6 +357,11 @@ export default function CodeReviewForm() {
                   </div>
                   
                   <div className="flex flex-col sm:flex-row flex-wrap justify-end gap-3 pt-2">
+                    {/* Botón de Nueva Revisión Rápida (Abandona la actual) */}
+                    <button onClick={handleResetForm} type="button" className="px-5 py-2.5 border border-slate-300 text-slate-700 bg-white hover:bg-slate-100 rounded-xl font-bold transition-all duration-200 text-sm shadow-sm">
+                      Nueva Revisión
+                    </button>
+                    
                     <button onClick={handleRegenerate} disabled={actionStatus === 'loading'} className="px-5 py-2.5 border border-purple-200 text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-xl font-bold transition-all duration-200 disabled:opacity-50 text-sm">
                       <span className="flex items-center">
                         <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
@@ -348,7 +371,9 @@ export default function CodeReviewForm() {
                     <button onClick={() => handleAction('comment_only')} disabled={actionStatus === 'loading'} className="px-5 py-2.5 border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 hover:border-slate-400 rounded-xl font-bold transition-all duration-200 disabled:opacity-50 text-sm shadow-sm">
                       Solo Comentar
                     </button>
-                    <div className="flex-grow hidden sm:block"></div>
+                    
+                    <div className="flex-grow hidden lg:block"></div>
+                    
                     <button onClick={() => handleAction('discarded')} disabled={actionStatus === 'loading'} className="px-6 py-2.5 border border-rose-200 text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-xl font-bold transition-all duration-200 disabled:opacity-50 text-sm">
                       Descartar Sugerencia
                     </button>
