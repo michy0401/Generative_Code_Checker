@@ -25,7 +25,7 @@ El catálogo se construye a partir de la implementación real del sistema, princ
 - `backend/services/llm_connector.py`
 - `backend/schemas/response_schema.json`
 - `backend/docs/PROMPT_CHANGELOG.md`
-- Evidencia de pruebas funcionales de QA contenida en `complemento/Evidencia Pruebas.docx`
+- Evidencia de pruebas funcionales de QA contenida en `documentos_complementarios/Evidencia Pruebas.docx`
 
 El objetivo es mantener una correspondencia verificable entre la documentación de Prompt Engineering y el comportamiento real del sistema.
 
@@ -1196,7 +1196,7 @@ No se establece en este catálogo una cifra fija de tokens para cada bloque, ya 
 | `FEW_SHOT_EXAMPLES` | `backend/services/llm_connector.py` | `v1.2` | Solo tras fallo de validación inicial |
 | `Response Schema` | `backend/schemas/response_schema.json` | Vigente | Todas las revisiones |
 | Versionado | `backend/docs/PROMPT_CHANGELOG.md` | `PROMPT_VERSION = 1.2` | Trazabilidad |
-| Casos de QA | `complemento/Evidencia Pruebas.docx` | Evidencia de pruebas | Validación funcional |
+| Casos de QA | `documentos_complementarios/Evidencia Pruebas.docx` | Evidencia de pruebas | Validación funcional |
 
 ---
 
