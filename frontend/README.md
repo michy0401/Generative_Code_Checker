@@ -20,7 +20,7 @@ El frontend implementa protección de rutas mediante un sistema de sesión (Supa
 
 * **`/review` (Ruta Pública - Camino Principal):** Permite a cualquier estudiante enviar fragmentos de código (máximo 20,000 caracteres) y seleccionar criterios de evaluación específicos. Renderiza el análisis dinámico generado por la IA (hallazgos, pruebas, explicaciones) e incluye un visor de diferencias (DiffViewer).
 * **`/login` & `/register` (Rutas Públicas):** Gestión de identidad de usuarios.
-* **`/dashboard` (Ruta Protegida):** Panel analítico que muestra métricas globales (Tasa de Aceptación, Lenguaje Principal, Errores Comunes).
+* **`/dashboard` (Ruta Protegida):** Panel analítico con un toggle entre "Vista Global" (métricas de todo el sistema: Tasa de Aceptación, Lenguaje Principal, Errores Comunes) y "Mis Métricas" (las mismas métricas, filtradas solo a las revisiones del usuario logueado).
 * **`/history` (Ruta Protegida):** Tabla de trazabilidad que permite visualizar el historial de revisiones del usuario y abrir la evidencia completa del diagnóstico.
 
 ## Reglas de Negocio (Control Humano RF-08)

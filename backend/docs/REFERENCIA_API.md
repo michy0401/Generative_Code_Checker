@@ -34,7 +34,7 @@ Supabase — ver la sección de esquema de datos más abajo.
   Authorization: Bearer <access_token>
   ```
 - **Casi todos los endpoints funcionan con o sin login** (modo anónimo vía `session_id`), excepto
-  `GET /api/reviews/mine`, que requiere estar logueado.
+  `GET /api/reviews/mine` y `GET /api/dashboard/mine`, que requieren estar logueado.
 - El proyecto de Supabase usa **llaves asimétricas (ECC P-256, algoritmo ES256)** — no hay ningún
   secreto compartido. El backend valida la firma del JWT contra el JWKS público del proyecto
   (`${SUPABASE_URL}/auth/v1/.well-known/jwks.json`), sin llamar a la API de Supabase por cada
@@ -290,6 +290,34 @@ ni sesión.
 
 ---
 
+### `GET /api/dashboard/mine`
+Mismas 5 métricas que `GET /api/dashboard/metrics`, pero calculadas **solo sobre las revisiones
+del estudiante autenticado** — el `student_id` sale del JWT (nunca de un parámetro), así que un
+usuario no puede pedir las métricas de otro.
+
+- **Auth**: **obligatoria** (JWT válido) — a diferencia de `/metrics`, que es pública
+- **Respuesta 200**: mismo formato que `GET /api/dashboard/metrics`, filtrado al usuario:
+
+```json
+{
+  "total_reviews": 0,
+  "reviews_by_language": { "Python": 0, "JavaScript": 0 },
+  "reviews_by_status": { "pending": 0, "accepted": 0, "discarded": 0 },
+  "regenerated_count": 0,
+  "most_frequent_findings": [
+    { "title": "string", "count": 0 }
+  ]
+}
+```
+
+  Si el estudiante todavía no tiene ninguna revisión propia, devuelve las 5 métricas en
+  cero/vacías (no un error).
+
+- **Errores**: `401` (falta el token, o es inválido/expirado), `503` (falló la consulta a
+  Supabase)
+
+---
+
 ## Esquema de datos (`public.reviews`)
 
 Cada revisión (original o regeneración) es una fila de esta tabla. Las migraciones que la crean
@@ -341,7 +369,8 @@ contrato de la API que consume el frontend.)
 | `/api/reviews/<id>` | PATCH | Según dueño | No | Aceptar/descartar/comentar | 400, 401, 403, 404, 413, 502 |
 | `/api/reviews/<id>/regenerate` | POST | Según dueño | Sí | Pedir nuevo análisis | 400, 401, 403, 404, 413, 429, 502, 503 |
 | `/api/reviews/<id>/history` | GET | Según dueño | No | Ver toda la cadena de regeneraciones | 401, 403, 404, 502 |
-| `/api/dashboard/metrics` | GET | No | No | Datos para el tablero | 503 |
+| `/api/dashboard/metrics` | GET | No | No | Datos para el tablero (global) | 503 |
+| `/api/dashboard/mine` | GET | Sí | No | Datos para el tablero (solo del usuario logueado) | 401, 503 |
 
 "Según dueño" = JWT del dueño si la revisión es de un usuario autenticado, o `session_id` exacto
 si es anónima. Cualquier endpoint puede además devolver `404` genérico (ruta inexistente) o `500`

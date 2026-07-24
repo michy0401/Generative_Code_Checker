@@ -53,7 +53,7 @@ backend por HTTP, no hay proxy ni servidor intermedio.
 
 ## Documentación de la API
 
-- Referencia completa de los 9 endpoints (campos, respuestas de ejemplo, todos los códigos de error): [`backend/docs/REFERENCIA_API.md`](backend/docs/REFERENCIA_API.md)
+- Referencia completa de los 10 endpoints (campos, respuestas de ejemplo, todos los códigos de error): [`backend/docs/REFERENCIA_API.md`](backend/docs/REFERENCIA_API.md)
 - Documentación interactiva (Swagger UI, "Try it out" en vivo contra el servidor real): `http://127.0.0.1:5000/api/docs/`, con el backend corriendo
 - Detalle del flujo de autenticación (JWT de Supabase Auth, JWKS/ES256): [`backend/docs/AUTH_PARA_FRONTEND.md`](backend/docs/AUTH_PARA_FRONTEND.md)
 - Historial de versiones del prompt del sistema: [`backend/docs/PROMPT_CHANGELOG.md`](backend/docs/PROMPT_CHANGELOG.md)

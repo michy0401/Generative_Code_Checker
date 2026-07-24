@@ -81,9 +81,9 @@ flask --app app run
 ## Documentacion interactiva de la API (Swagger)
 
 Con el servidor corriendo, **`GET /api/docs`** tiene la referencia completa y actualizada de
-los 9 endpoints (`/health`, `/api/review`, `/api/reviews/<id>` [GET y PATCH], `/api/reviews`,
+los 10 endpoints (`/health`, `/api/review`, `/api/reviews/<id>` [GET y PATCH], `/api/reviews`,
 `/api/reviews/mine`, `/api/reviews/<id>/regenerate`, `/api/reviews/<id>/history`,
-`/api/dashboard/metrics`): metodo, parametros, si requiere autenticacion (y de que tipo),
+`/api/dashboard/metrics`, `/api/dashboard/mine`): metodo, parametros, si requiere autenticacion (y de que tipo),
 estructura de respuesta y todos los codigos de status posibles. Se puede probar cada endpoint
 directamente desde el navegador, incluyendo pegar un JWT en el boton "Authorize" para los que lo
 requieren o aceptan.
@@ -165,7 +165,7 @@ backend/
 │   ├── 002_add_parent_review.sql # idem - agrega reviews.parent_review_id
 │   └── 003_add_status_comment_prompt.sql # idem - status/student_comment/prompt_sent
 ├── docs/
-│   ├── REFERENCIA_API.md          # Referencia completa de los 9 endpoints (fuente de verdad)
+│   ├── REFERENCIA_API.md          # Referencia completa de los 10 endpoints (fuente de verdad)
 │   ├── AUTH_PARA_FRONTEND.md      # Como el frontend debe mandar el JWT de Supabase Auth
 │   └── PROMPT_CHANGELOG.md        # Historial de versiones del SYSTEM_PROMPT
 ├── services/
