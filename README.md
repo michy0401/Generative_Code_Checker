@@ -17,8 +17,7 @@ decisiones humanas sobre cada diagnóstico.
 Generative_Code_Checker/
 ├── backend/              # API en Flask + integración con Gemini + persistencia en Supabase
 ├── frontend/              # Interfaz en React + Vite que consume esa API
-├── docs/                  # Documentación transversal (auditorías del sistema completo, backend+frontend)
-└── rubrica_evaluacion/    # Enunciado oficial del proyecto y rúbrica de evaluación de la materia
+
 ```
 
 ## Stack tecnológico

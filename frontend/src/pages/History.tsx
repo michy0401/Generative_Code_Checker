@@ -34,8 +34,7 @@ export default function History() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedReview, setSelectedReview] = useState<ReviewRecord | null>(null);
-  
-  // Nuevo estado para controlar nuestra alerta visual (Toast)
+
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
@@ -76,7 +75,6 @@ export default function History() {
     return null;
   };
 
-  // Función para mostrar el Toast y ocultarlo automáticamente a los 3 segundos
   const showToast = (message: string, type: 'success' | 'error') => {
     setToast({ message, type });
     setTimeout(() => {
@@ -95,16 +93,13 @@ export default function History() {
         throw new Error('Error al actualizar el estado');
       }
 
-      // Actualizamos el estado local para que la UI reaccione instantáneamente
       setReviews(reviews.map(r => r.id === reviewId ? { ...r, status: newStatus } : r));
       setSelectedReview(prev => prev ? { ...prev, status: newStatus } : null);
-      
-      // Lanzamos la notificación bonita de éxito
+
       showToast(`Revisión ${newStatus === 'accepted' ? 'aceptada' : 'descartada'} exitosamente.`, 'success');
-      
+
     } catch (error) {
       console.error("Error al actualizar la revisión:", error);
-      // Lanzamos la notificación bonita de error
       showToast("Hubo un error al intentar cambiar el estado.", 'error');
     }
   };

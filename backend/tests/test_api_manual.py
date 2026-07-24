@@ -42,7 +42,7 @@ BASE_URL = "http://127.0.0.1:5000"
 REVIEW_URL = f"{BASE_URL}/api/review"
 SCHEMA_KEYS = {"summary", "findings", "explanation", "suggested_code", "tests", "warnings"}
 
-TOTAL_CASES = 30
+TOTAL_CASES = 31
 results = []  # (index, label, ok, detail)
 
 
@@ -1321,6 +1321,87 @@ def case_30_dashboard_reflects_accepted_status():
     report(30, "Dashboard refleja status accepted", True, f"accepted={accepted_count}")
 
 
+# --- Caso 31: GET /api/dashboard/mine filtra por estudiante -----------------
+# A diferencia de GET /api/dashboard/metrics (publico, agrega TODO el sistema),
+# este endpoint exige auth y solo agrega las revisiones del student_id del JWT.
+
+def case_31_dashboard_mine_filters_by_student():
+    admin_client, _ = _get_supabase_admin_clients()
+    if admin_client is None:
+        report(31, "GET /api/dashboard/mine filtra por estudiante", False, "faltan SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY en .env")
+        return
+
+    auth_client_a = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
+    auth_client_b = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
+
+    user_a_id = None
+    user_b_id = None
+
+    try:
+        try:
+            user_a_id, token_a = _create_and_sign_in_test_user(admin_client, auth_client_a)
+            user_b_id, token_b = _create_and_sign_in_test_user(admin_client, auth_client_b)
+        except Exception as error:
+            report(31, "GET /api/dashboard/mine filtra por estudiante", False, f"no se pudieron crear los usuarios de prueba: {error}")
+            return
+
+        # Usuario B, sin ninguna revision propia todavia: debe ver las 5 metricas en
+        # cero, no un error.
+        status_b, body_b = get(f"{BASE_URL}/api/dashboard/mine", headers={"Authorization": f"Bearer {token_b}"})
+        if status_b != 200:
+            report(31, "GET /api/dashboard/mine filtra por estudiante", False, f"usuario sin revisiones esperado 200, recibido {status_b}: {body_b[:200]}")
+            return
+        data_b = json.loads(body_b)
+        if data_b.get("total_reviews") != 0:
+            report(31, "GET /api/dashboard/mine filtra por estudiante", False, f"usuario sin revisiones deberia ver total_reviews=0, se obtuvo: {data_b.get('total_reviews')}")
+            return
+
+        # Usuario A crea una revision propia (lenguaje distintivo para poder verificarla).
+        payload = {
+            "language": "Kotlin",
+            "exercise": "Test de GET /api/dashboard/mine",
+            "level": "Basico",
+            "review_type": "Buenas practicas",
+            "student_code": "fun suma(a: Int, b: Int): Int { return a + b }",
+        }
+        status_review, body_review = post_json(REVIEW_URL, payload, headers={"Authorization": f"Bearer {token_a}"})
+        if status_review != 200:
+            report(31, "GET /api/dashboard/mine filtra por estudiante", False, f"POST /api/review (usuario A) esperado 200, recibido {status_review}: {body_review[:200]}")
+            return
+
+        # /api/dashboard/mine del usuario A debe reflejar esa revision.
+        status_a, body_a = get(f"{BASE_URL}/api/dashboard/mine", headers={"Authorization": f"Bearer {token_a}"})
+        if status_a != 200:
+            report(31, "GET /api/dashboard/mine filtra por estudiante", False, f"usuario A esperado 200, recibido {status_a}: {body_a[:200]}")
+            return
+        data_a = json.loads(body_a)
+        if data_a.get("total_reviews", 0) < 1 or data_a.get("reviews_by_language", {}).get("Kotlin", 0) < 1:
+            report(31, "GET /api/dashboard/mine filtra por estudiante", False, f"usuario A deberia ver su propia revision de Kotlin, se obtuvo: {data_a}")
+            return
+
+        # El usuario B sigue en 0 despues de que A creo la suya - no se mezclan.
+        status_b2, body_b2 = get(f"{BASE_URL}/api/dashboard/mine", headers={"Authorization": f"Bearer {token_b}"})
+        if status_b2 != 200:
+            report(31, "GET /api/dashboard/mine filtra por estudiante", False, f"usuario B (2da consulta) esperado 200, recibido {status_b2}: {body_b2[:200]}")
+            return
+        data_b2 = json.loads(body_b2)
+        if data_b2.get("total_reviews") != 0:
+            report(31, "GET /api/dashboard/mine filtra por estudiante", False, f"usuario B deberia seguir en 0 tras la revision de A, se obtuvo: {data_b2.get('total_reviews')}")
+            return
+
+        # Sin token -> 401 (auth obligatoria, a diferencia del dashboard global).
+        status_401, body_401 = get(f"{BASE_URL}/api/dashboard/mine")
+        if status_401 != 401:
+            report(31, "GET /api/dashboard/mine filtra por estudiante", False, f"sin token esperado 401, recibido {status_401}: {body_401[:200]}")
+            return
+
+        report(31, "GET /api/dashboard/mine filtra por estudiante", True, "200 filtrado por usuario (0 sin revisiones, refleja las propias), 401 sin token")
+    finally:
+        for uid in (user_a_id, user_b_id):
+            if uid:
+                _cleanup_test_user(admin_client, uid, 31)
+
+
 def main():
     print(f"Verificando servidor en {BASE_URL} ...")
     if not check_server_is_up():
@@ -1360,6 +1441,7 @@ def main():
     case_28_invalid_review_type()
     case_29_dashboard_metrics_shape()
     case_30_dashboard_reflects_accepted_status()
+    case_31_dashboard_mine_filters_by_student()
     case_21_rate_limit_backend()
     case_22_few_shot_retry_succeeds()
     case_23_few_shot_retry_also_fails()

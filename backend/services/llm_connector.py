@@ -42,16 +42,11 @@ RETRY_BACKOFF_SECONDS = 1.5
 
 REQUIRED_FIELDS = ["language", "exercise", "level", "review_type", "student_code"]
 
-# Un ejercicio de estudiante tipico son unas pocas decenas a unos cientos de lineas;
-# 20000 caracteres da margen generoso (varios cientos de lineas) sin dejar pasar
-# payloads desproporcionados que gastarian una llamada al LLM en vano.
+# Cubre ejercicios reales de sobra sin dejar pasar payloads abusivos.
 MAX_STUDENT_CODE_CHARS = int(os.getenv("MAX_STUDENT_CODE_CHARS", 20000))
 
-# Tipos de revision controlados (seccion 4.1 del documento del proyecto, RF-03).
-# Valores legibles para mostrar en mensajes de error; la comparacion real se hace
-# normalizada (sin tildes, minusculas) via _normalize_review_type(). Si esta lista
-# cambia, actualizar tambien el enum de "review_type" en los docstrings de Swagger
-# de routes/review.py (POST /api/review y /regenerate) - no se generan del mismo lugar.
+# Valores legibles para mensajes de error (la comparacion real es normalizada via
+# _normalize_review_type()). Si cambia, actualizar tambien el enum de Swagger en routes/review.py.
 ALLOWED_REVIEW_TYPES = [
     "Errores",
     "Buenas practicas",
@@ -76,11 +71,8 @@ _SCHEMA_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 with open(_SCHEMA_PATH, "r", encoding="utf-8") as _schema_file:
     RESPONSE_SCHEMA = json.load(_schema_file)
 
-# Historial completo de cambios en docs/PROMPT_CHANGELOG.md. Cualquier cambio futuro al
-# SYSTEM_PROMPT (en esta tarea o en cualquiera futura) DEBE venir acompanado de un bump
-# de PROMPT_VERSION + una entrada nueva en ese changelog - sin excepcion, aunque el cambio
-# parezca chico. Es la unica forma de que "Prompt Versioning" (seccion 7.5 del PDF de
-# arquitectura) siga siendo confiable con el tiempo.
+# Cualquier cambio al SYSTEM_PROMPT va con un bump de PROMPT_VERSION y una entrada
+# nueva en docs/PROMPT_CHANGELOG.md, sin excepcion por chico que parezca.
 PROMPT_VERSION = "1.2"
 
 SYSTEM_PROMPT = """Actuas como un Ingeniero de Software Senior especializado en revision de \
@@ -98,11 +90,8 @@ Reglas que debes seguir siempre:
 Schema entregado a continuacion. No agregues texto antes ni despues del JSON, ni \
 uses bloques de markdown (```)."""
 
-# Few-Shot Examples (seccion 5.5 del PDF de arquitectura): "no siempre seran enviados,
-# se utilizaran unicamente cuando sea necesario reforzar el formato esperado". Por eso
-# esta constante NO se agrega al prompt del primer intento (ver _build_prompt) - solo se
-# incluye en el reintento condicional que dispara analizar_codigo() cuando el Response
-# Validator rechaza la primera respuesta (ver mas abajo).
+# No se agrega al prompt del primer intento (ver _build_prompt) - solo entra en el
+# reintento condicional cuando el Response Validator rechaza la primera respuesta.
 FEW_SHOT_EXAMPLES = """Ejemplo de referencia (entrada y salida completa) para que tomes \
 como modelo del formato esperado:
 
@@ -239,8 +228,8 @@ def _process_input(language, exercise, level, review_type, student_code):
 
 
 def _build_regeneration_context(previous_review, motivo_regeneracion):
-    """Arma el bloque opcional de "revision anterior" / "motivo de regeneracion"
-    (seccion 5.4 del documento de arquitectura). Vacio si no aplica (revision nueva)."""
+    """Arma el bloque opcional de "revision anterior" / "motivo de regeneracion".
+    Vacio si no aplica (revision nueva)."""
     if previous_review is None and not motivo_regeneracion:
         return ""
 
@@ -407,8 +396,8 @@ def analizar_codigo(
       Few-Shot Examples si aplico) que efectivamente produjo `data` - el del segundo
       intento si el primero fallo la validacion y el few-shot lo corrigio, o el del
       primero si no hizo falta reintentar. Pensado para persistir en
-      `reviews.prompt_sent` (trazabilidad, RF-09/RNF-05) - no forma parte del
-      Response Schema ni se agrega a la respuesta HTTP.
+      `reviews.prompt_sent` (trazabilidad) - no forma parte del Response Schema
+      ni se agrega a la respuesta HTTP.
 
     `previous_review` (dict, la respuesta completa de una revision anterior) y
     `motivo_regeneracion` (texto libre) son opcionales - se usan solo cuando
@@ -416,11 +405,11 @@ def analizar_codigo(
     POST /api/reviews/<id>/regenerate). No cambian el Response Schema de salida.
 
     Si la primera respuesta no cumple el Response Schema, hace UN reintento adicional
-    con Few-Shot Examples incluidos en el prompt (seccion 5.5 del PDF de arquitectura),
-    distinto y separado del loop de reintentos por fallas transitorias de red/parseo de
-    _call_llm (MAX_ATTEMPTS) - este es un reintento de formato, no de comunicacion, y
-    cuenta aparte. Si ese segundo intento tampoco valida, se propaga
-    ResponseValidationError igual que si no existiera este mecanismo.
+    con Few-Shot Examples incluidos en el prompt, distinto y separado del loop de
+    reintentos por fallas transitorias de red/parseo de _call_llm (MAX_ATTEMPTS) - este
+    es un reintento de formato, no de comunicacion, y cuenta aparte. Si ese segundo
+    intento tampoco valida, se propaga ResponseValidationError igual que si no existiera
+    este mecanismo.
 
     Lanza:
         InputValidationError: si faltan campos requeridos, review_type no esta en

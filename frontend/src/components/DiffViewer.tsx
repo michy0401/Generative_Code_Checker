@@ -20,8 +20,7 @@ export default function DiffViewer({ originalCode, suggestedCode }: DiffViewerPr
       </div>
       
       <div className="text-sm">
-        {/* El componente mágico que hace el render lado a lado */}
-        <ReactDiffViewer 
+        <ReactDiffViewer
           oldValue={originalCode} 
           newValue={suggestedCode} 
           splitView={true} 

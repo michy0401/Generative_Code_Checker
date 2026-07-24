@@ -90,26 +90,11 @@ def update_review(review_id, status=None, student_comment=None):
     return result.data[0]
 
 
-def get_dashboard_metrics():
-    """Calcula y devuelve las metricas agregadas para el dashboard (RF-10: revisiones
-    realizadas, lenguajes analizados, errores frecuentes, revisiones aceptadas y
-    revisiones regeneradas).
-
-    Trae solo las columnas necesarias en un unico select y agrega en Python, en vez
-    de escribir una consulta SQL con jsonb_array_elements() sobre `response` (lo cual
-    exigiria crear una funcion/vista nueva en Supabase solo para esto, un componente
-    mas para mantener). Para el volumen de datos esperado en un proyecto academico,
-    un select simple + agregacion en memoria es mas simple y confiable que optimizar
-    de forma prematura una consulta jsonb.
+def _aggregate_dashboard_metrics(rows):
+    """Agrega las 5 metricas del dashboard a partir de filas de `reviews` ya traidas
+    por el caller (todas para el dashboard global, solo las de un estudiante para el
+    personal). Que aparece en `rows` es responsabilidad del caller, esto solo agrega.
     """
-    try:
-        result = get_client().table(TABLE).select("language, status, parent_review_id, response").execute()
-    except Exception as error:
-        logger.error("No se pudieron calcular las metricas del dashboard: %s", error)
-        raise RepositoryError(str(error)) from error
-
-    rows = result.data or []
-
     reviews_by_language = {}
     reviews_by_status = {}
     regenerated_count = 0
@@ -146,6 +131,46 @@ def get_dashboard_metrics():
         "regenerated_count": regenerated_count,
         "most_frequent_findings": most_frequent_findings,
     }
+
+
+def get_dashboard_metrics():
+    """Calcula las metricas agregadas del dashboard.
+
+    Trae solo las columnas necesarias en un unico select y agrega en Python en vez de
+    escribir una vista/funcion SQL con jsonb_array_elements() - alcanza de sobra para
+    el volumen real de datos y es mas facil de mantener que optimizar antes de tiempo.
+    """
+    try:
+        result = get_client().table(TABLE).select("language, status, parent_review_id, response").execute()
+    except Exception as error:
+        logger.error("No se pudieron calcular las metricas del dashboard: %s", error)
+        raise RepositoryError(str(error)) from error
+
+    return _aggregate_dashboard_metrics(result.data or [])
+
+
+def get_dashboard_metrics_for_student(student_id):
+    """Igual que get_dashboard_metrics(), pero filtrado a un estudiante (usada por
+    GET /api/dashboard/mine). Reutiliza _aggregate_dashboard_metrics(); el unico
+    cambio es el .eq("student_id", ...) del select, igual al filtro que ya usa
+    list_reviews_by_student() para /api/reviews/mine.
+    """
+    try:
+        result = (
+            get_client()
+            .table(TABLE)
+            .select("language, status, parent_review_id, response")
+            .eq("student_id", student_id)
+            .execute()
+        )
+    except Exception as error:
+        logger.error(
+            "No se pudieron calcular las metricas del dashboard para el estudiante %s: %s",
+            student_id, error,
+        )
+        raise RepositoryError(str(error)) from error
+
+    return _aggregate_dashboard_metrics(result.data or [])
 
 
 def get_review_by_id(review_id):

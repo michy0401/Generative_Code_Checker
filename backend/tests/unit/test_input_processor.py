@@ -47,7 +47,7 @@ def test_student_code_exceeding_char_limit_raises_without_external_calls():
         llm_connector._process_input(**fields)
 
 
-# --- review_type controlado (RF-03, seccion 4.1 del documento del proyecto) -------
+# --- review_type controlado -------------------------------------------------------
 
 @pytest.mark.parametrize("review_type", llm_connector.ALLOWED_REVIEW_TYPES)
 def test_valid_review_type_passes(review_type):

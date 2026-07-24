@@ -24,7 +24,6 @@ export default function Navbar() {
               <Link to="/review" className="hover:bg-slate-800 hover:text-indigo-300 px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-200">
                 Nueva Revisión
               </Link>
-              {/* Solo mostramos estos enlaces si hay sesión activa */}
               {session && (
                 <>
                   <Link to="/dashboard" className="hover:bg-slate-800 hover:text-indigo-300 px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-200">

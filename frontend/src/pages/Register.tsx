@@ -24,7 +24,6 @@ export default function Register() {
       setError(error.message);
     } else {
       setSuccess(true);
-      // Limpiamos los campos
       setEmail('');
       setPassword('');
     }

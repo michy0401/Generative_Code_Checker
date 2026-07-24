@@ -1,28 +1,44 @@
 import { useState, useEffect } from 'react';
 import apiFetch from '../utils/apiFetch';
+import { useAuth } from '../AuthContext';
 
 interface DashboardMetrics {
   total_reviews: number;
   reviews_by_language: Record<string, number>;
   reviews_by_status: Record<string, number>;
   regenerated_count: number;
-  most_frequent_findings: Array<string | Record<string, unknown>>; 
+  most_frequent_findings: Array<string | Record<string, unknown>>;
 }
 
+type DashboardView = 'global' | 'mine';
+
 export default function Dashboard() {
+  const { session } = useAuth();
+  const [view, setView] = useState<DashboardView>('global');
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // "Mis Metricas" requiere sesion. Si se cierra sesion estando en esa pestana,
+    // volvemos a la vista global (esa siempre sigue siendo publica).
+    if (view === 'mine' && !session) {
+      setView('global');
+      return;
+    }
+
+    const endpoint = view === 'mine' ? '/api/dashboard/mine' : '/api/dashboard/metrics';
+
     const fetchMetrics = async () => {
+      setLoading(true);
+      setError(null);
       try {
-        const response = await apiFetch('/api/dashboard/metrics');
+        const response = await apiFetch(endpoint);
         if (!response.ok) {
           const errData = await response.json().catch(() => ({}));
           throw new Error(errData.error || `Error del servidor: ${response.status}`);
         }
-        
+
         const data = await response.json();
         setMetrics(data);
       } catch (err: unknown) {
@@ -37,7 +53,7 @@ export default function Dashboard() {
     };
 
     fetchMetrics();
-  }, []);
+  }, [view, session]);
 
   const accepted = metrics?.reviews_by_status?.['accepted'] || 0;
   const acceptanceRate = metrics?.total_reviews 
@@ -69,9 +85,41 @@ export default function Dashboard() {
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-slate-50 py-12 px-4 sm:px-6 lg:px-8 font-sans">
       <div className="max-w-6xl mx-auto">
-        <div className="mb-10 text-center md:text-left">
+        <div className="mb-6 text-center md:text-left">
           <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Dashboard Analítico</h1>
-          <p className="text-slate-500 mt-2 font-medium">Métricas globales y comportamiento de la IA en la revisión de código.</p>
+          <p className="text-slate-500 mt-2 font-medium">
+            {view === 'mine'
+              ? 'Métricas de tus propias revisiones.'
+              : 'Métricas globales y comportamiento de la IA en la revisión de código.'}
+          </p>
+        </div>
+
+        <div className="mb-10 flex flex-wrap items-center gap-3">
+          <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+            <button
+              onClick={() => setView('global')}
+              className={`px-4 py-2 rounded-lg text-sm font-bold transition ${
+                view === 'global' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Vista Global
+            </button>
+            <button
+              onClick={() => session && setView('mine')}
+              disabled={!session}
+              title={!session ? 'Inicia sesión para ver tus métricas personales' : undefined}
+              className={`px-4 py-2 rounded-lg text-sm font-bold transition ${
+                view === 'mine' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-700'
+              } ${!session ? 'opacity-40 cursor-not-allowed' : ''}`}
+            >
+              Mis Métricas
+            </button>
+          </div>
+          {!session && (
+            <span className="text-xs font-medium text-slate-400">
+              Inicia sesión para ver métricas de tus propias revisiones.
+            </span>
+          )}
         </div>
 
         {error ? (

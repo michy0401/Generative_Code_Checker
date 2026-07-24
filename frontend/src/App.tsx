@@ -2,7 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider } from './AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 
-import Navbar from './components/Navbar'; // <-- IMPORTA EL NAVBAR AQUÍ
+import Navbar from './components/Navbar';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import CodeReviewForm from './pages/CodeReviewForm';
@@ -13,8 +13,7 @@ export default function App() {
   return (
     <AuthProvider>
       <Router>
-        {/* EL NAVBAR VA AQUÍ ADENTRO DEL ROUTER */}
-        <Navbar /> 
+        <Navbar />
         
         <Routes>
           <Route path="/login" element={<Login />} />

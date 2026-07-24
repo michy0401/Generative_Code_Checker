@@ -14,7 +14,6 @@ export default function Login() {
     setLoading(true);
     setError(null);
 
-    // Llamada directa a Supabase Auth
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,

@@ -62,7 +62,6 @@ export default function CodeReviewForm() {
   const [actionStatus, setActionStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [actionMessage, setActionMessage] = useState('');
 
-  // Función para reiniciar todo el formulario y volver al estado inicial
   const handleResetForm = () => {
     setLanguage('Python');
     setLevel('Intermedio');

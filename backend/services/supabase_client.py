@@ -1,10 +1,8 @@
 """Cliente unico de Supabase, reutilizado por toda la capa de repositorios.
 
-Se crea de forma perezosa (no al importar el modulo): construir el cliente sin
-SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY configuradas falla inmediatamente, y no
-queremos que eso tumbe el arranque de la app (por ejemplo /health) si faltan
-esas variables - solo debe fallar, de forma controlada, cuando algo realmente
-intenta usar Supabase.
+Se crea de forma perezosa (no al importar el modulo) para que /health y el resto
+de la app puedan arrancar aunque falten las variables de Supabase - recien falla
+cuando algo intenta usarlo de verdad.
 """
 
 import os
